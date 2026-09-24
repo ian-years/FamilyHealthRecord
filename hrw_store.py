@@ -1612,26 +1612,36 @@ class Store(object):
         """
         c = self._conn()
         try:
+            # 「全部」不过滤人；「未指定」只收 person_id 为空的行；其余按成员。
+            # 片段统一写成 (?=0 OR o.person_id IS ?)：flag=0 关掉过滤，
+            # flag=1 时 o.person_id IS NULL 命中「未指定」、IS <id> 命中成员。
+            pid = self._norm_person(person_id)
+            if pid is None:
+                p_flag, p_val = 0, None
+            elif pid == 0:
+                p_flag, p_val = 1, None
+            else:
+                p_flag, p_val = 1, pid
             sql = [
                 'SELECT i.*,',
                 ' (SELECT COUNT(*) FROM observations o WHERE o.indicator_id=i.id',
-                '  AND (? IS NULL OR o.person_id=?)) AS obs_count,',
+                '  AND (?=0 OR o.person_id IS ?)) AS obs_count,',
                 ' (SELECT COUNT(DISTINCT o.obs_date) FROM observations o',
-                '  WHERE o.indicator_id=i.id AND (? IS NULL OR o.person_id=?)) AS date_count,',
+                '  WHERE o.indicator_id=i.id AND (?=0 OR o.person_id IS ?)) AS date_count,',
                 ' (SELECT MAX(o.obs_date) FROM observations o WHERE o.indicator_id=i.id',
-                '  AND (? IS NULL OR o.person_id=?)) AS last_date,',
+                '  AND (?=0 OR o.person_id IS ?)) AS last_date,',
                 ' (SELECT o.value FROM observations o WHERE o.indicator_id=i.id',
-                '  AND (? IS NULL OR o.person_id=?) ORDER BY o.obs_date DESC, o.id DESC LIMIT 1)'
+                '  AND (?=0 OR o.person_id IS ?) ORDER BY o.obs_date DESC, o.id DESC LIMIT 1)'
                 '  AS last_value,',
                 ' (SELECT o.unit FROM observations o WHERE o.indicator_id=i.id',
-                '  AND (? IS NULL OR o.person_id=?) ORDER BY o.obs_date DESC, o.id DESC LIMIT 1)'
+                '  AND (?=0 OR o.person_id IS ?) ORDER BY o.obs_date DESC, o.id DESC LIMIT 1)'
                 '  AS last_unit,',
                 ' EXISTS(SELECT 1 FROM watched_indicators w WHERE w.indicator_id=i.id',
                 '  AND w.person_id=?) AS watched',
                 'FROM indicators i WHERE 1=1',
             ]
-            args = [person_id, person_id, person_id, person_id, person_id, person_id,
-                    person_id, person_id, person_id, person_id, person_id]
+            args = [p_flag, p_val, p_flag, p_val, p_flag, p_val,
+                    p_flag, p_val, p_flag, p_val, p_val]
             if not include_text:
                 sql.append(' AND IFNULL(i.is_text,0)=0')
             if category:
@@ -1645,8 +1655,8 @@ class Store(object):
                 args.extend([like, like, like])
             if only_with_data:
                 sql.append(' AND EXISTS(SELECT 1 FROM observations o WHERE o.indicator_id=i.id'
-                           ' AND (? IS NULL OR o.person_id=?))')
-                args.extend([person_id, person_id])
+                           ' AND (?=0 OR o.person_id IS ?))')
+                args.extend([p_flag, p_val])
             sql.append(' ORDER BY i.is_text, i.category, i.name')
             rows = c.execute(' '.join(sql), args).fetchall()
             out = [dict(r) for r in rows]
@@ -1683,6 +1693,18 @@ class Store(object):
         finally:
             c.close()
 
+    def id_for_key(self, key):
+        """按稳定键取指标 id。日常录入抽屉手里只有 key（不是 id），
+        存完要顺手刷新指标详情，就得有这么一条路径。找不到返回 None。"""
+        if not key:
+            return None
+        c = self._conn()
+        try:
+            r = c.execute('SELECT id FROM indicators WHERE key=?', (str(key),)).fetchone()
+            return int(r['id']) if r else None
+        finally:
+            c.close()
+
     # ---------------------------------------------------------- 关注指标
 
     def list_watched(self, person_id):
@@ -1709,6 +1731,10 @@ class Store(object):
                     d['spark'] = []
                     out.append(d)
                 return out
+            # 「未指定」没有身份：关注是「谁关心某项」，必须有一位主人。
+            # 以前它被当成「全部」，于是未指定视图里显示的是全员关注项的并集。
+            if self._norm_person(person_id) == 0:
+                return []
             rows = c.execute(
                 'SELECT i.*, w.created_at AS watched_at,'
                 ' (SELECT o.value FROM observations o WHERE o.indicator_id=i.id'
@@ -1835,6 +1861,14 @@ class Store(object):
                        'FROM observations o LEFT JOIN documents d ON d.id=o.document_id '
                        'LEFT JOIN persons p ON p.id=o.person_id '
                        'WHERE o.indicator_id=?')
+                args = [indicator_id]
+            elif self._norm_person(person_id) == 0:
+                # 「未指定」= 无归属的观测值（不是不过滤，也不是某个成员）
+                sql = ('SELECT o.*, d.date_status, d.title AS doc_title, d.document_type, '
+                       'p.name AS person_name '
+                       'FROM observations o LEFT JOIN documents d ON d.id=o.document_id '
+                       'LEFT JOIN persons p ON p.id=o.person_id '
+                       'WHERE o.person_id IS NULL AND o.indicator_id=?')
                 args = [indicator_id]
             else:
                 sql = ('SELECT o.*, d.date_status, d.title AS doc_title, d.document_type, '
@@ -2020,6 +2054,25 @@ class Store(object):
 
     # ---------------------------------------------------------- 费用
 
+    @staticmethod
+    def _norm_person(person_id):
+        """把「按成员看」的取值归一成三类：
+
+        - ``None``  → 「全部成员」，**不过滤**人；
+        - ``0``     → 「未指定」，只看 ``person_id`` 为空的行；
+        - 正整数    → 具体成员。
+
+        前端成员切换器把「全部 / 未指定 / 各成员」分别映射成
+        ``null / 0 / id``。以前「未指定」被当成「全部」处理，
+        于是费用卡、关注清单、趋势在「未指定」视图里全都显示全员的数据。
+        """
+        if person_id is None:
+            return None
+        try:
+            return int(person_id)
+        except (TypeError, ValueError):
+            return None
+
     def fees_summary(self, person_id=None):
         """医疗费用汇总。
 
@@ -2034,9 +2087,12 @@ class Store(object):
                    ' (SELECT IFNULL(SUM(ch.amount_cents),0) FROM charge_items ch '
                    '  WHERE ch.document_id=d.id) AS items_cents'
                    ' FROM documents d WHERE 1=1')
-            if person_id is not None:
+            pid = self._norm_person(person_id)
+            if pid == 0:
+                sql += ' AND d.person_id IS NULL'      # 「未指定」= 无归属的行
+            elif pid is not None:
                 sql += ' AND d.person_id=?'
-                args.append(person_id)
+                args.append(pid)
             rows = c.execute(sql, args).fetchall()
 
             items = []

@@ -465,7 +465,10 @@ class Handler(SimpleHTTPRequestHandler):
                                       "categories": STORE.indicator_categories()})
 
             if path == "/api/indicators/get":
+                key = (q.get("key") or [""])[0]
                 iid = int((q.get("id") or ["0"])[0] or 0)
+                if key and not iid:
+                    iid = STORE.id_for_key(key) or 0
                 ind = STORE.get_indicator(iid)
                 if not ind:
                     return self.json_out({"ok": False, "reason": "指标不存在"}, 404)

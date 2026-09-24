@@ -57,7 +57,7 @@ try {
 }
 
 // 前置：把成员名单重置成预置的 6 人。
-// 光清四表不够 —— 成员名单存在 meta 表里，按设计「清空数据不误删名单」，
+// 光清空数据表不够 —— 成员名单存在 V2 的 persons 表里，按设计「清空数据不误删名单」，
 // 所以上一轮改过的名字、删掉的成员会**跨轮残留**：
 // 上一轮把「儿子」改成「仔仔」、删掉了「老婆」，下一轮「改名儿子」「添加老婆」这些
 // 用例的前提就不成立了，会报出一串看起来像功能坏了、实际是状态脏了的失败。
@@ -437,7 +437,7 @@ const backup = await page.evaluate(async () => {
 });
 say('备份：' + JSON.stringify({ schema: backup.schema, counts: backup.counts, fileCount: backup.fileCount, bytes: backup.bytes }));
 check('备份 schema 正确', backup.schema === 'health-records-local-backup/v2');
-check('备份含全部四表计数', backup.counts.documents === 121 && backup.counts.indicators >= 15);
+check('备份含 V2 各表计数', backup.counts.documents === 121 && backup.counts.indicators >= 15);
 check('备份已内嵌 3 个附件数据', backup.fileCount === 3 && backup.files.every(f => f.b64 > 0));
 
 const restore = await page.evaluate(async () => {
@@ -457,7 +457,7 @@ const restore = await page.evaluate(async () => {
   };
 });
 say('恢复：' + JSON.stringify(restore));
-check('清空后四表计数归零', restore.afterClear === 0, restore.afterClear);
+check('清空后 V2 各表计数归零', restore.afterClear === 0, restore.afterClear);
 check('清空后附件也归零', restore.filesAfterClear === 0, restore.filesAfterClear);
 check('恢复成功且条数与附件数一致', restore.ok && restore.count === 121 && restore.files === 3, JSON.stringify(restore));
 

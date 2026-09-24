@@ -197,7 +197,7 @@ var S = {
   filters: { q: '', type: '', hospital: '', person: '' },
   archFilter: { q: '', type: '', person: '' },
   rcFilter: { year: '' },
-  // 家庭成员：名单存在服务端 meta 表里，personSupported=false 时界面不显示成员筛选
+  // 家庭成员：名单存在服务端 persons 表里，personSupported=false 时界面不显示成员筛选
   persons: [],
   personView: null,                  // 概览与指标按谁展示：null=全部，0=未指定，其余为成员 id
   followNotice: '',                  // 关注设置保存后的一句反馈
@@ -260,7 +260,7 @@ async function loadTable(name, orderCol) {
   return b;
 }
 
-/* 家庭成员名单（存在服务端 meta 表里，不属于四张数据表）。
+/* 家庭成员名单（存在服务端 persons 表里）。
    读失败时降级为 unsupported：界面不再显示成员筛选与成员管理，
    而不是显示一个点下去必然空转的功能。 */
 // 数据层不支持成员时把入口藏起来。留一个点进去必然空转的功能，比没有这个功能更糟。
@@ -312,13 +312,8 @@ async function loadAll() {
   ]);
   await ensureCatalog();
   await loadPersons();
-  /* 老目录补 followers：V2 模式下必须跳过。
-     重构后 indicators 是由 indicators 表生成的视图，有几百项；
-     这一步会逐行 update 回旧表，几百个请求能把启动卡死，
-     而且目录的关注关系已经由 watched_indicators 接管，补它没有意义。 */
-  if (!(window.V2 && V2.isEnabled())) {
-    await migrateCatalogFollowers();   // 老目录行补 followers，失败不挡启动
-  }
+  /* 关注清单的唯一真源是 watched_indicators（按人一份，服务端存）。
+     旧版在启动时逐行回写目录行上的 followers —— 那套已随 V1 删掉。 */
   S.booted = true;
 }
 
@@ -356,41 +351,14 @@ function mergeCatalogMeta(row) {
 
 function catalogSort(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); }
 // 定义（名称/单位/别名/换算）全家共用一份，catalogList 不做按人裁剪；
-// 只有「是否关注」按人，读 followed 的地方一律改用 catalogView()。
+// 按人的「关注」由 V2 的 watched_indicators 维护，不再挂在目录行上。
 function catalogList() { return bucket('indicators').rows.map(mergeCatalogMeta).sort(catalogSort); }
-function catalogView() { return L.catalogForPerson(catalogList(), S.personView); }
 function personViewLabel() {
   if (L.isAllView(S.personView)) return '全部';
   var n = personNameOf(S.personView);
   return n || '未指定';
 }
 
-/* 老版本的目录行没有 followers。第一次见到就按全局 followed 展开补上，
-   之后不再动 —— 否则用户「只给老婆关注某项」会被每次启动冲回全家。 */
-async function migrateCatalogFollowers() {
-  if (!cloud.hasPersons || !cloud.hasPersons()) return;
-  /* 「有没有这个能力」和「名单读到了没有」是两件事。读名单失败时 S.persons 是空数组，
-     而 withFollowers(row, []) 只会给出 [0]（未指定）—— 一旦把这半成品写进库，
-     下一次加载就"已经有 followers 数组"不再补，全家每个人的关注清单永久变空且无从恢复。 */
-  if (S.personState !== 'ok') return;
-  if (!S.persons.length) return;
-  var missing = bucket('indicators').rows.filter(function (r) {
-    return !Array.isArray(r.followers);
-  });
-  if (!missing.length) return;
-  var failed = 0;
-  for (var i = 0; i < missing.length; i++) {
-    var r = missing[i];
-    var next = L.withFollowers(r, S.persons);
-    var res = await cloud.database.from('indicators')
-      .update({ followers: next.followers }).eq('id', r.id).select();
-    if (res.error || !res.data || !res.data.length) failed++;
-  }
-  cloud.invalidate();
-  await loadTable('indicators', 'sort_order');
-  if (failed) S.followNotice = '有 ' + failed + ' 项指标的关注设置没能升级到按人存储，' +
-    '这些项仍按全家共用处理。';
-}
 function catalogByKey() {
   var m = {};
   catalogList().forEach(function (c) { m[c.key] = c; });
@@ -454,45 +422,6 @@ async function sha256Hex(file) {
 }
 
 /* ---------------- 4. 指标数据组装 ---------------- */
-
-// 报告派生项 + 日常录入项 汇合，但保留来源区别；不重复生成派生结果
-function allIndicatorPoints(pid) {
-  var who = (pid === undefined) ? S.personView : pid;
-  var derived = L.deriveIndicatorPoints(bucket('documents').rows, catalogList(), who);
-  var manual = bucket('manual_records').rows
-    .filter(function (r) { return L.personMatches(r, who); }).map(function (r) {
-    var c = catalogByKey()[r.indicator_key] || {};
-    return {
-      indicatorKey: r.indicator_key, name: r.name, condition: r.condition,
-      result: r.text_result !== null && r.text_result !== undefined && r.text_result !== ''
-        ? r.text_result : (r.value1 !== null && r.value1 !== undefined ? String(r.value1) : ''),
-      unit: r.unit, reference: r.reference, flag: L.normalizeFlag(r.flag), flagRaw: r.flag || null,
-      value: (r.type === '数值' || r.type === '双数值') ? (r.value1 === null || r.value1 === undefined ? null : Number(r.value1)) : null,
-      value2: (r.type === '双数值' && r.value2 !== null && r.value2 !== undefined) ? Number(r.value2) : null,
-      date: r.record_date, dateStatus: null,
-      source: '手动录入', sourceRecordId: null, sourceTitle: r.note || null,
-      dailyRecordId: r.id, review: r.review || '用户录入', analyze: c.analyze || null,
-      textResult: r.text_result || null, type: r.type
-    };
-  });
-  var pts = {};
-  derived.concat(manual).forEach(function (p) {
-    (pts[p.indicatorKey] = pts[p.indicatorKey] || []).push(p);
-  });
-  return pts;
-}
-
-function rangeCutoff() {
-  if (S.range === 'all') return null;
-  var days = S.range === '3' ? 92 : 366;
-  return L.addDaysISO(L.todayISO(), -days);
-}
-
-function filterPointsByRange(points) {
-  var cut = rangeCutoff();
-  if (!cut) return points;
-  return points.filter(function (p) { var d = L.dateSortKey(p.date); return d && d >= cut; });
-}
 
 /* ---------------- 5. 启动（本地版：无登录） ---------------- */
 
@@ -1555,76 +1484,6 @@ function kpi(label, value, unit, detail) {
     (detail ? '<div class="d">' + detail + '</div>' : '') + '</div>';
 }
 
-function indicatorStats(key, points, cat) {
-  var list = points[key] || [];
-  var isLipidGroup = key === 'lipids';
-  var isOgtt = key === 'ogtt_glu' || key === 'ogtt_ins';
-  var st = { key: key, cat: cat, list: list, count: 0, countLabel: '记录次数', latest: null, latestDate: null, points: list };
-
-  if (isLipidGroup) {
-    var byKey = {};
-    var comps = L.indicatorComponents(key);
-    comps.forEach(function (k) { byKey[k] = points[k] || []; });
-    var lip = L.lipidSummary(byKey);
-    st.count = lip.checkCount; st.countLabel = lip.label; st.lipid = lip; st.compPoints = byKey;
-    st.latestDate = lip.dates.length ? lip.dates[lip.dates.length - 1] : null;
-    st.latest = comps.map(function (k) {
-      var c = catalogByKey()[k] || {};
-      var cand = byKey[k].filter(function (p) { return L.dateSortKey(p.date) === st.latestDate; });
-      return { key: k, name: c.name || k, list: cand };
-    });
-    return st;
-  }
-  if (isOgtt) {
-    var og = L.buildOGTT(list, cat && cat.ogtt);
-    st.ogtt = og; st.count = og.trialCount; st.countLabel = '有有效日期的试验次数';
-    var tdates = og.trials.map(function (t) { return t.date; }).sort();
-    st.latestDate = tdates.length ? tdates[tdates.length - 1] : null;
-    st.trial = st.latestDate ? og.trials.filter(function (t) { return t.date === st.latestDate; })[0] : null;
-    return st;
-  }
-  var trend = L.buildTrend(list, { analyze: cat && cat.analyze });
-  st.trend = trend;
-  // 「次数」列就是这一行的结果记录数（指令 §16：界面文案必须与统计口径一致）。
-  // 参与连线的点数是另一件事，只在详情图的「N 个有效点」与趋势说明里讲，别混进这一列。
-  st.count = list.length;
-  st.countLabel = cat && cat.type === '双数值' ? '记录次数' : '结果记录数';
-  st.latestDate = trend.distinctDates.length ? trend.distinctDates[trend.distinctDates.length - 1] : null;
-  st.latest = trend.latest;
-  return st;
-}
-
-function latestCell(st) {
-  if (st.key === 'lipids') {
-    // 四个分项在同一张表里各有自己的行，这里再把四个值抄一遍既拥挤又重复。
-    // 这一格只回答"最新那次查了几项、缺哪几项"，逐项数值看各自的行或点详情。
-    var comps = st.latest || [];
-    if (!comps.length) return '<span class="muted">暂无记录</span>';
-    if (!st.latestDate) return '<span class="muted">暂无记录</span>';   // 次数为 0 就不许说"有结果"
-    var have = comps.filter(function (c) { return c.list.length; });
-    var missing = comps.filter(function (c) { return !c.list.length; })
-      .map(function (c) { return c.name; });
-    return '血脂四项 <b class="num">' + have.length + '/' + comps.length + '</b> 项有结果' +
-      (missing.length ? '<div class="muted" style="font-size:11px">本次未提供：' + esc(missing.join('、')) + '</div>' : '') +
-      '<div class="muted" style="font-size:11px">分项数值见各自的行，点开看四项分别成图</div>';
-  }
-  if (st.trial) {
-    var mx = st.trial.curvePoints.length;
-    return mx ? (mx + ' 个时点（' + esc(st.trial.unit || '') + '）') : '<span class="muted">本次无精确数值点</span>';
-  }
-  if (!st.latest || !st.latest.length) return '<span class="muted">暂无记录</span>';
-  var p = st.latest[0];
-  if (st.cat && st.cat.type === '双数值') {
-    var v2 = (p.value2 === null || p.value2 === undefined) ? null : p.value2;
-    return esc(p.value) + (v2 === null ? '' : ' / ' + esc(v2)) + ' <span class="muted" style="font-size:11.5px">' + esc(p.unit || '') + '</span>';
-  }
-  var extra = '';
-  if (p.conversion && p.conversion.conversionApplied) {
-    extra = ' <span class="muted" style="font-size:11px">（原 ' + esc(p.conversion.originalValue + ' ' + p.conversion.originalUnit) + '）</span>';
-  }
-  return esc(p.value) + ' <span class="muted" style="font-size:11.5px">' + esc(p.normUnit || p.unit || '') + '</span>' + extra;
-}
-
 function renderOverview() {
   var host = $('s-overview');
   // 成员切换：选中某人后，本页 KPI、关注指标表、趋势、资料活动、类型分布、费用
@@ -1633,9 +1492,7 @@ function renderOverview() {
     return L.personMatches(r, S.personView);
   });
   var drugs = bucket('drugs').rows;
-  var pts = allIndicatorPoints();
-  var cat = catalogView();
-  var fees = L.buildFees(recs);
+  var cat = catalogList();
   var tl = L.groupTimeline(recs);
   var activity = L.buildActivity(recs);
   var dist = L.typeDistribution(recs);
@@ -1644,7 +1501,6 @@ function renderOverview() {
 
   // A. 概览数字
   var datedCount = tl.dateGroups.length;
-  var followedCount = cat.filter(function (c) { return c.followed; }).length;
 
   var html = '';
   html += '<div class="page-head"><h2>健康数据概览</h2>' +
@@ -1662,11 +1518,10 @@ function renderOverview() {
   html += '<div class="kpis">' +
     kpi('档案数量', '<span class="num">' + recs.length + '</span>', '份', '共 ' + L.DOC_TYPES.length + ' 类资料，含 ' + tl.pending.length + ' 份日期待确认') +
     kpi('覆盖的有效日期', '<span class="num">' + datedCount + '</span>', '个', '仅统计日期有效的资料') +
-    kpi('关注指标', '<span class="num">' + followedCount + '</span>', '项', '目录共 ' + cat.length + ' 项，可继续添加') +
-    kpi('已记录医疗费用', '<span class="num">' + esc(fees.total.replace('¥', '')) + '</span>', '元',
-      '明确金额 ' + fees.counts.known + ' 张；未知金额 ' + fees.counts.unknown + ' 张未计入' +
-      (fees.counts.duplicateSkipped ? '；同一张票据重复出现 ' + fees.counts.duplicateSkipped +
-        ' 次，只计了一次（去重按文件哈希，见票据来源列表）' : '')) +
+    kpi('关注指标', '<span class="num" id="kpiWatchedCount">—</span>', '项',
+      '目录共 ' + cat.length + ' 项，可继续添加') +
+    kpi('已记录医疗费用', '<span class="num" id="kpiFees">—</span>', '元',
+      '<span id="kpiFeesDetail">按所选成员的档案金额汇总</span>') +
     '</div>';
 
   html += '<div class="cols-2">';
@@ -1674,55 +1529,13 @@ function renderOverview() {
   /* ---- 左列 ---- */
   html += '<div class="grid">';
 
-  // B. 关注指标表
-  html += '<div class="card" id="cardFollow"><div class="card-h"><h3>关注指标 <span class="sub">最新结果与趋势概览</span></h3>' +
-    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-    '<div class="range-tabs" id="rangeTabs">' +
-    ['3', '12', 'all'].map(function (r) {
-      return '<button data-range="' + r + '" class="' + (S.range === r ? 'on' : '') + '">' +
-        (r === '3' ? '近 3 个月' : r === '12' ? '近 12 个月' : '全部') + '</button>';
-    }).join('') + '</div>' +
-    '<button class="btn sm" id="btnFollowMgr">添加关注</button>' +
-    '<button class="btn sm" id="btnCustom">自定义指标</button></div></div>';
-
-  html += '<div class="card-b">';
-  html += '<div class="note" style="margin:0 0 11px">时间范围：<b>仅作用于本表的指标结果与趋势统计</b>，不影响下方的资料活动、类型分布与费用统计。</div>';
-
-  if (!cat.length) {
-    html += msg(S.tables.indicators.state === 'error' ? '指标目录未能同步，无法展示关注指标。' : '指标目录为空，正在初始化…');
-  } else {
-    /* 概览只显示已关注项（需求方 2026-09-24 定口径：彻底隐藏）。
-       未关注但有数据的指标仍完整保留在库里，从「添加关注」目录和指标详情页可达；
-       报告里出现但未进目录的项目同样只在这些地方可见，概览不再铺出。 */
-    var shown = cat.filter(function (c) { return c.followed; });
-    if (!shown.length) html += msg('还没有关注指标。点「添加关注」从目录中选择。');
-
-    if (shown.length) {
-      html += '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
-        '<th>指标名</th><th>说明</th><th>最新结果</th><th>最新有效日期</th><th class="r">次数</th><th>小趋势</th><th></th>' +
-        '</tr></thead><tbody>';
-      shown.forEach(function (c) {
-        var scoped = filterPointsByRange(pts[c.key] || []);
-        var st = indicatorStats(c.key, c.key === 'lipids' ? pointsForLipidScope(pts) : buildScopedMap(pts, scoped, c.key), c);
-        var note = c.unmatched ? '报告中出现但未进入目录的项目' :
-          (c.grp || '') + ' · ' + (c.type || '') + (c.unit ? ' · ' + c.unit : '');
-        html += '<tr data-ind="' + attr(c.key) + '">' +
-          '<td><b>' + esc(c.name) + '</b>' + (c.followed ? '' : ' <span class="tag gray">未关注</span>') + '</td>' +
-          '<td class="muted" style="font-size:12px">' + esc(note) + '</td>' +
-          '<td>' + latestCell(st) + '</td>' +
-          '<td class="num" style="font-size:12px">' + (st.latestDate ? esc(L.fmtCN(st.latestDate)) : '<span class="muted">—</span>') + '</td>' +
-          '<td class="r num">' + st.count + '<div class="muted" style="font-size:10.5px">' + esc(st.countLabel) + '</div></td>' +
-          '<td>' + sparkCell(st) + '</td>' +
-          '<td class="r" style="white-space:nowrap">' +
-          '<button class="btn sm" data-ind-open="' + attr(c.key) + '">详情</button> ' +
-          '<button class="btn sm ghost" data-ind-daily="' + attr(c.key) + '">录入</button></td>' +
-          '</tr>';
-      });
-      html += '</tbody></table></div>';
-      html += '<div class="note">次数口径（与上方时间范围同口径，范围换了这一列会跟着变）：普通数值指标显示结果记录数；血脂显示按有效报告日期去重的「检查次数」（四个分项不是四次检查）；OGTT 显示有有效日期的试验次数。详情里的「历史记录」始终列全部，含不参与连线的记录，所以它可能多于本行次数 —— 差的就是被时间范围或连线规则筛掉的那些。</div>';
-    }
-  }
-  html += '</div></div>';
+  /* B. 关注指标表
+     这一格由 V2 接管（app\v2.js 的 renderFollowCard 会整块重写本卡的内容）：
+     数据源是后端 /api/watched + /api/indicators，前端只负责画。
+     旧版那张读目录行 followers 的表已随 V1 一起删掉。 */
+  html += '<div class="card" id="cardFollow"><div class="card-h"><h3>关注指标 ' +
+    '<span class="sub">最新结果与趋势概览</span></h3></div><div class="card-b">' +
+    msg('正在载入关注指标…') + '</div></div>';
 
   // E. 跨年度资料活动
   html += '<div class="card"><div class="card-h"><h3>跨年度资料活动 <span class="sub">按年汇总，点击年份展开月份</span></h3></div><div class="card-b">';
@@ -1758,36 +1571,17 @@ function renderOverview() {
 
   html += '</div>';   // 左列结束
 
-  /* ---- 右列：费用 ---- */
+  /* ---- 右列：费用 ----
+     两张费用卡同样由 V2 接管（renderFeesCards，数据源 /api/fees/summary）。
+     旧版按 L.buildFees(recs) 现算的卡片已随 V1 一起删掉 —— 同一件事两个算法
+     正是这一版要根除的毛病。这里只留挂载点。 */
   html += '<div class="grid">';
-  html += '<div class="card" id="cardFees"><div class="card-h"><h3>已记录医疗费用</h3></div><div class="card-b">';
-  html += '<div class="kv" style="grid-template-columns:118px minmax(0,1fr)">' +
-    '<dt>明确金额总额</dt><dd><b class="num" style="font-size:16px">' + esc(fees.total) + '</b>' +
-    '<div class="muted" style="font-size:11.5px">来自 ' + fees.counts.known + ' 张已录入票据</div></dd>' +
-    '<dt>明确零金额</dt><dd>' + fees.counts.zero + ' 张 <span class="muted" style="font-size:11.5px">（真实 0 元，按有效日期参与年度张数）</span></dd>' +
-    '<dt>金额未知</dt><dd>' + fees.counts.unknown + ' 张 <span class="muted" style="font-size:11.5px">（未计入合计，仍保留在总额与来源中）</span></dd>' +
-    '<dt>医保支付</dt><dd>' + esc(fees.insurance) + (fees.insuranceMissing ? ' <span class="muted" style="font-size:11.5px">（' + fees.insuranceMissing + ' 张未提供）</span>' : '') + '</dd>' +
-    '<dt>个人支付</dt><dd>' + esc(fees.selfPay) + (fees.selfMissing ? ' <span class="muted" style="font-size:11.5px">（' + fees.selfMissing + ' 张未提供）</span>' : '') + '</dd>' +
-    '</div>';
-  if (fees.gapNote) html += '<div class="note">' + esc(fees.gapNote) + '</div>';
-  html += '<div style="margin-top:12px"><button class="btn primary" id="btnAllReceipts">查看全部票据来源</button></div>';
-  html += '<div class="note">' + esc(fees.scopeNote) + ' 费用只统计「医疗发票 / 收费单」，不把处方中的金额或收费项目提到的药品重复计费。</div>';
-  html += '</div></div>';
+  html += '<div class="card" id="cardFees"><div class="card-h"><h3>已记录医疗费用</h3></div>' +
+    '<div class="card-b">' + msg('正在载入费用…') + '</div></div>';
 
-  html += '<div class="card" id="cardFeesYear"><div class="card-h"><h3>年度费用</h3><span class="sub">按票据主要日期汇总</span></div><div class="card-b">';
-  if (!fees.yearList.length) html += msg('暂无可用于年度统计的票据（需要日期有效且金额明确）。');
-  else {
-    var maxc = Math.max.apply(null, fees.yearList.map(function (y) { return y.cents; })) || 1;
-    html += '<div class="bars">' + fees.yearList.map(function (y) {
-      var h = Math.max(3, Math.round(y.cents / maxc * 100));
-      return '<div class="bar" title="' + attr(y.year + ' 年 · ' + y.amount + ' · ' + y.count + ' 张') + '">' +
-        '<span class="amt">' + esc(y.amount) + '</span>' +
-        '<span class="fill" style="height:' + h + 'px"></span>' +
-        '<span class="lab">' + esc(y.year) + '</span><span class="lab muted">' + y.count + ' 张</span></div>';
-    }).join('') + '</div>';
-    html += '<div class="note">每年显示年度、合计金额与票据张数。无日期的票据不进入年度图，但仍在总额与来源列表中，因此年度小计与总额可能不同。</div>';
-  }
-  html += '</div></div>';
+  html += '<div class="card" id="cardFeesYear"><div class="card-h"><h3>年度费用</h3>' +
+    '<span class="sub">按档案日期汇总</span></div><div class="card-b">' +
+    msg('正在载入年度费用…') + '</div></div>';
 
   // 药品轻摘要：分组必须走药品页同一个 drugStatusGroup，否则任何非标准 status
   // 会在药品页算进某一组、在这张卡上却谁都不算（同一个事实两处各写一遍的老毛病）。
@@ -1808,30 +1602,6 @@ function renderOverview() {
   bindOverview();
   // V2：关系型数据到位后，用后端算好的指标/费用替换掉这两张卡
   if (window.V2) V2.mountOverview();
-}
-
-function buildScopedMap(allPts, scoped, key) {
-  var m = {};
-  Object.keys(allPts).forEach(function (k) { m[k] = k === key ? scoped : allPts[k]; });
-  return m;
-}
-function pointsForLipidScope(allPts) {
-  var cut = rangeCutoff();
-  if (!cut) return allPts;
-  var m = {};
-  Object.keys(allPts).forEach(function (k) { m[k] = filterPointsByRange(allPts[k]); });
-  return m;
-}
-function sparkCell(st) {
-  if (st.key === 'lipids' && st.compPoints) {
-    // 四个分析物不能首尾接成一条线（指令 §16「不同指标…不串成同一条线」）。
-    // 组行这里就不画小趋势图，四项分别成图在详情里看。
-    return '<span class="muted" style="font-size:11.5px">分项分别成图</span>';
-  }
-  var src = (st.trend && st.trend.connected.length >= 2) ? st.trend.connected : (st.list || []);
-  return sparkline(src.sort(function (a, b) {
-    return (L.dateSortKey(a.date) || '') < (L.dateSortKey(b.date) || '') ? -1 : 1;
-  }));
 }
 
 /* 顶部成员切换器：全部 / 每个成员 / 未指定。
@@ -1861,28 +1631,12 @@ function bindOverview() {
   qsa('#s-overview [data-ps]').forEach(function (b) {
     b.onclick = function () { setPersonView(b.dataset.ps); };
   });
-  qsa('#rangeTabs button').forEach(function (b) {
-    b.onclick = function () { S.range = b.dataset.range; renderOverview(); };
-  });
   qsa('[data-go-btn]').forEach(function (b) { b.onclick = function () { go(b.dataset.goBtn); }; });
-  qsa('[data-ind-open]').forEach(function (b) {
-    b.onclick = function (e) { e.stopPropagation(); openIndicator(b.dataset.indOpen, '数据概览'); };
-  });
-  qsa('[data-ind-daily]').forEach(function (b) {
-    b.onclick = function (e) { e.stopPropagation(); openDailyDrawer(b.dataset.indDaily, null); };
-  });
-  qsa('#s-overview tr[data-ind]').forEach(function (tr) {
-    tr.onclick = function (e) {
-      if (e.target.closest('button')) return;
-      openIndicator(tr.dataset.ind, '数据概览');
-    };
-  });
-  var fm = $('btnFollowMgr'); if (fm) fm.onclick = openFollowDrawer;
-  var cm = $('btnCustom'); if (cm) cm.onclick = openCustomDrawer;
-  var ar = $('btnAllReceipts'); if (ar) ar.onclick = function () { openReceipts(); };
   qsa('[data-act-toggle]').forEach(function (h) {
     h.onclick = function () { S.actYears[h.dataset.actToggle] = !S.actYears[h.dataset.actToggle]; renderOverview(); };
   });
+  /* 关注指标表 / 两张费用卡 / 指标详情层都由 V2 接管，它们的按钮与行事件
+     在 app\v2.js 里绑（那些 DOM 是 V2 渲染出来的，这里根本抓不到）。 */
 }
 
 /* ---------------- 10. 健康档案时间线 ---------------- */
@@ -2924,38 +2678,6 @@ function setPersonMsg(text, isErr) {
   host.insertBefore(box, host.firstChild);
 }
 
-/* 把整个目录的 followers 按给定规则重写一遍。逐行 update，
-   哪几行没写成要如实报出来，不能只说「成功」。返回失败条数。 */
-async function rewriteCatalogFollowers(nextRows) {
-  var rows = bucket('indicators').rows;
-  var failed = 0;
-  for (var i = 0; i < nextRows.length; i++) {
-    var before = rows[i] && Array.isArray(rows[i].followers) ? rows[i].followers : null;
-    var after = nextRows[i].followers;
-    if (before && after && JSON.stringify(before.slice().sort()) === JSON.stringify(after.slice().sort())) continue;
-    var r = await cloud.database.from('indicators')
-      .update({ followers: after }).eq('id', rows[i].id).select();
-    if (r.error || !r.data || !r.data.length) failed++;
-  }
-  cloud.invalidate();
-  await loadTable('indicators', 'sort_order');
-  return failed;
-}
-
-// 新成员默认继承「我」的关注集合，否则他点进概览是一张空白目录
-async function applyFollowInherit(newPid) {
-  var rows = bucket('indicators').rows;
-  if (!rows.length) return 0;
-  return rewriteCatalogFollowers(L.inheritFollowers(rows, defaultPersonId(), newPid));
-}
-
-// 成员删掉后，他的 id 不该继续留在各项关注集合里
-async function applyFollowPrune() {
-  var rows = bucket('indicators').rows;
-  if (!rows.length) return 0;
-  return rewriteCatalogFollowers(L.pruneFollowers(rows, S.persons));
-}
-
 async function doPersonAdd() {
   var inp = $('psNewName');
   var name = (inp ? inp.value : '').trim();
@@ -2972,14 +2694,11 @@ async function doPersonAdd() {
   if (!res.ok) return setPersonMsg('添加失败：' + res.reason, true);
   PERSONS_UI.adding = '';
   await refreshPersons();
-  // 先渲染出成员行，再做关注继承 —— 继承要重写整个目录的 followers，
-  // 可能明显慢于一次点击；反过来先继承后渲染的话，新行的按钮会晚一拍才出现
-  //（端到端自测在 1.2 秒后就去点「删除」按钮，踩到过这个空窗）。
   renderPersons();
-  var inheritFailed = await applyFollowInherit(nid);
-  setPersonMsg('已添加成员「' + name + '」，关注指标默认沿用「' +
-    (personNameOf(defaultPersonId()) || '我') + '」那一套。' +
-    (inheritFailed ? '但有 ' + inheritFailed + ' 项指标的关注没能写入，请重新保存一次。' : ''));
+  /* 新成员起步是空白关注清单：关注按人保存在 watched_indicators，
+     不凭空继承别人的清单（想让他关注什么，切到他再勾一次即可）。 */
+  setPersonMsg('已添加成员「' + name + '」。他的关注清单是空白的，' +
+    '在概览顶部切到这个人，点「添加关注」勾选即可。');
 }
 
 async function doPersonGender(pid, gender) {
@@ -3066,7 +2785,8 @@ async function doPersonDelete(pid) {
       await loadTable(owned[ri].table, owned[ri].table === 'documents' ? 'primary_date' : 'record_date');
     }
   }
-  await applyFollowPrune();
+  /* 关注行由服务端在 save_persons 里按存活成员清理（删人时连带删 watched_indicators），
+     前端不再回写目录行的 followers。 */
   // 概览正停在这个人身上时得退回「全部」，否则切换器会指向一个不存在的成员
   if (Number(S.personView) === Number(pid)) S.personView = null;
   renderPersons();
@@ -3209,60 +2929,6 @@ function closeDrawers() {
   $('mask').classList.remove('on');
 }
 
-function openFollowDrawer() {
-  var cat = catalogView();
-  var pts = allIndicatorPoints(null);        // 这里要数全家已有的结果，不按当前视图裁
-  var who = personViewLabel();
-  $('followBody').innerHTML = '<div class="pick-list">' + cat.map(function (c) {
-    var n = (pts[c.key] || []).length;
-    return '<div class="pi"><input type="checkbox" data-follow="' + attr(c.key) + '"' + (c.followed ? ' checked' : '') + '>' +
-      '<span class="info"><span class="n">' + esc(c.name) + '</span>' +
-      '<span class="m">' + esc((c.grp || '') + ' · ' + (c.type || '') + (c.unit ? ' · ' + c.unit : '')) +
-      '　已有 ' + n + ' 条结果</span></span></div>';
-  }).join('') + '</div>' +
-    '<div class="note">现在编辑的是<b>「' + esc(who) + '」</b>的关注项' +
-    (L.isAllView(S.personView) ? '：这是全家共用的默认关注，切到具体成员后可以各设各的。'
-      : '：只影响这个人，其他成员的关注项各自独立。指标定义（名称、单位、别名、换算）全家共用一份，不会因关注而分叉。') +
-    '<br>改变关注状态只影响这里的展示：添加关注不会新增检查次数，也不会创建任何结果；取消关注只隐藏关注入口，不删除目录，也不删除历史结果。</div>' +
-    '<div class="df" style="border:0;padding:13px 0 0;justify-content:flex-start">' +
-    '<button class="btn primary" id="btnFollowSave">保存关注设置</button></div>';
-
-  $('btnFollowSave').onclick = async function () {
-    var boxes = qsa('#followBody input[data-follow]');
-    var changed = [];
-    boxes.forEach(function (b) {
-      var c = catalogByKey()[b.dataset.follow];
-      if (c && L.followedBy(c, S.personView) !== b.checked) {
-        changed.push({ key: b.dataset.follow, on: b.checked });
-      }
-    });
-    if (!changed.length) { closeDrawers(); return; }
-    var btn = $('btnFollowSave');
-    btn.disabled = true; btn.textContent = '保存中…';
-    var failed = [];
-    for (var i = 0; i < changed.length; i++) {
-      // 「全部」视图改全局 followed；具体成员改自己那份 followers，不串别人
-      var raw = catalogByKey()[changed[i].key];
-      var next = L.setFollowFor(raw, S.personView, changed[i].on);
-      var patch = L.isAllView(S.personView)
-        ? { followed: !!changed[i].on }
-        : { followers: next.followers };
-      var r = await cloud.database.from('indicators')
-        .update(patch).eq('key', changed[i].key).select();
-      if (r.error || !r.data || !r.data.length) failed.push(changed[i].key);
-    }
-    btn.disabled = false; btn.textContent = '保存关注设置';
-    await loadTable('indicators', 'sort_order');
-    if (failed.length) {
-      alert('有 ' + failed.length + ' 项未保存成功，页面保持远端真实状态：' + failed.join('、'));
-      return;
-    }
-    closeDrawers();
-    renderCurrent();
-  };
-  openDrawer('drawer-follow');
-}
-
 function openCustomDrawer() {
   var groups = {};
   catalogList().forEach(function (c) { if (c.grp) groups[c.grp] = true; });
@@ -3284,24 +2950,35 @@ function openCustomDrawer() {
     var btn = $('btnCusSave');
     btn.disabled = true; btn.textContent = '保存中…';
     var on = $('cusFollow').value === 'yes';
-    // 在谁的视图里新增就先给谁；在「全部」视图里新增则按默认发给全家，
-    // 与老目录的迁移规则一致，避免出现「加了个指标却没人看得见」。
+    /* 关注在 V2 是独立的 watched_indicators（人 × 指标）关系表，不再写在目录行的
+       followed / followers 上。所以建完指标要单独把人加进关注清单：
+       在某成员视图里新增就给这位成员；在「全部」或「未指定」视图里新增则发给每位成员，
+       避免出现「加了个指标却没人看得见」。 */
     var who = L.isAllView(S.personView) ? null : Number(S.personView);
-    var followers = on
-      ? (who === null
-        ? S.persons.map(function (p) { return Number(p.id); }).concat([0])
-        : [who])
-      : [];
     var res = await cloud.database.from('indicators').insert({
       name: name, key: key, grp: $('cusGroup').value, type: type,
-      unit: unit || null, aliases: aliases, followed: on, followers: followers,
-      sort_order: 900, preset: false
+      unit: unit || null, aliases: aliases, sort_order: 900, preset: false
     }).select();
-    btn.disabled = false; btn.textContent = '保存指标';
     if (res.error) {
+      btn.disabled = false; btn.textContent = '保存指标';
       if (res.error.code === '23505') return alert('该指标名称对应的标准键已存在，请换一个名称或直接使用已有指标。');
       return alert('保存失败：' + res.error.message);
     }
+    var newId = (res.data && res.data[0] && res.data[0].id) || null;
+    if (on && newId !== null && newId !== undefined) {
+      var targets = (who === null || who === 0)
+        ? S.persons.map(function (p) { return Number(p.id); })
+        : [who];
+      for (var i = 0; i < targets.length; i++) {
+        try {
+          await fetch('/api/watched/add', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ person_id: targets[i], indicator_id: newId })
+          });
+        } catch (e) { /* 单个人加关注失败不阻断指标本身的创建 */ }
+      }
+    }
+    btn.disabled = false; btn.textContent = '保存指标';
     await loadTable('indicators', 'sort_order');
     closeDrawers();
     renderCurrent();
@@ -3387,7 +3064,12 @@ function openDailyDrawer(key, presetDate) {
     if (!back.length) return alert('写入已返回，但回读未命中该记录，请刷新后核对。');
     closeDrawers();
     renderCurrent();
-    if (S.layerStack.indexOf('indLayer') >= 0) openIndicator(S.indCtx ? S.indCtx.key : useKey, S.indCtx ? S.indCtx.from : '数据概览', true);
+    if (S.layerStack.indexOf('indLayer') >= 0) {
+      // 详情层由 V2 渲染（同一个 #indBody）。走 key → id 再打开，
+      // 别去调旧实现，否则两套渲染器会抢着写同一块 DOM。
+      if (window.V2) V2.openIndicatorByKey(S.indCtx ? S.indCtx.key : useKey,
+        S.indCtx ? S.indCtx.from : '数据概览');
+    }
   };
   openDrawer('drawer-daily');
 }
@@ -4346,333 +4028,6 @@ function openDrug(id, keep) {
   else { $('drugLayer').classList.add('on'); if (S.layerStack.indexOf('drugLayer') < 0) S.layerStack.push('drugLayer'); syncBodyLock(); }
 }
 
-/* ---------------- 18. 指标详情 ---------------- */
-
-function openIndicator(key, fromLabel, keep) {
-  S.indCtx = { key: key, from: fromLabel || '数据概览' };
-  $('indBackLabel').textContent = '返回' + S.indCtx.from;
-  var c = catalogByKey()[key] || { key: key, name: key, type: '数值', grp: '未归类', unit: '' };
-  $('indTitle').textContent = c.name;
-  var pts = allIndicatorPoints();
-  /* 「血脂」是指标组：数值挂在四个分项键上，组键本身一个点都没有。
-     按 pts[key] 判空的话，这一行明明有检查次数、有日期，点进来却说「暂无记录」，
-     四项分别成图的那段实现永远进不去（自测 10.15 逮到的）。 */
-  var comps = L.indicatorComponents(key);
-  var isGroup = comps.length > 1;
-  var list = comps.reduce(function (a, k) { return a.concat(pts[k] || []); }, []);
-  var h = '';
-
-  h += '<div class="card" style="margin-bottom:14px"><div class="card-b" style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;justify-content:space-between">' +
-    '<dl class="kv" style="grid-template-columns:auto minmax(0,1fr);gap:4px 10px;margin:0">' +
-    '<dt>所属分组</dt><dd>' + esc(c.grp || '未归类') + '</dd>' +
-    '<dt>记录类型</dt><dd>' + esc(c.type || '数值') + '</dd>' +
-    '<dt>默认单位</dt><dd>' + (nz(c.unit) ? esc(c.unit) : '<span class="muted">未提供</span>') + '</dd>' +
-    '<dt>关注状态</dt><dd>' + (L.followedBy(c, S.personView) ? '已关注' : '未关注') +
-    '<span class="muted" style="font-size:11px">（' + esc(personViewLabel()) + '）</span></dd>' +
-    '</dl>' +
-    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-    '<div class="range-tabs" id="indRange">' + ['3', '12', 'all'].map(function (r) {
-      return '<button data-range="' + r + '" class="' + (S.range === r ? 'on' : '') + '">' +
-        (r === '3' ? '近 3 个月' : r === '12' ? '近 12 个月' : '全部') + '</button>';
-    }).join('') + '</div>' +
-    '<button class="btn sm primary" data-ind-daily="' + attr(key) + '">录入日常结果</button>' +
-    '</div></div></div>';
-
-  if (!list.length) {
-    h += '<div class="card"><div class="card-b">' + msg('暂无记录。这里不会初始化虚构检查值；可以用「录入日常结果」添加你自己的真实测量值。') + '</div></div>';
-  } else {
-    h += renderIndicatorCharts(key, c, list);
-    // 指标组的历史是四个分项混在一起，必须带项目名，否则一排数字分不清是谁的
-    h += renderPointHistory(key, c, list, isGroup);
-  }
-  $('indBody').innerHTML = h;
-
-  qsa('#indRange button').forEach(function (b) {
-    b.onclick = function () { S.range = b.dataset.range; openIndicator(key, S.indCtx.from, true); };
-  });
-  qsa('#indBody [data-ind-daily]').forEach(function (b) {
-    b.onclick = function () { openDailyDrawer(b.dataset.indDaily, null); };
-  });
-  qsa('#indBody [data-src-doc]').forEach(function (b) {
-    b.onclick = function () { openDoc(b.dataset.srcDoc, '指标详情'); };
-  });
-
-  if (!keep) { openLayer('indLayer'); pushHistory('indLayer'); }
-  else { $('indLayer').classList.add('on'); if (S.layerStack.indexOf('indLayer') < 0) S.layerStack.push('indLayer'); syncBodyLock(); }
-}
-
-function renderIndicatorCharts(key, c, list) {
-  var h = '';
-  var cat = c;
-
-  if (key === 'lipids') {
-    var pts = allIndicatorPoints();
-    var byKey = {};
-    L.indicatorComponents(key).forEach(function (k) { byKey[k] = filterPointsByRange(pts[k] || []); });
-    var lip = L.lipidSummary(byKey);
-    h += '<div class="card" style="margin-bottom:14px"><div class="card-h"><h3>血脂四项</h3>' +
-      '<span class="sub">按有效报告日期去重的检查次数：' + lip.checkCount + '</span></div><div class="card-b">' +
-      '<div class="note" style="margin:0 0 12px">' + esc(lip.note) + '</div>';
-    L.indicatorComponents(key).forEach(function (k) {
-      var sub = catalogByKey()[k] || { name: k, unit: 'mmol/L', analyze: null };
-      var tr = L.buildTrend(byKey[k], { analyze: sub.analyze });
-      h += '<div class="sec-t">' + esc(sub.name) + '　<span class="muted" style="font-weight:400">参与连线 ' + tr.connected.length + ' 点；有效日期 ' + tr.distinctDates.length + ' 个；共 ' + byKey[k].length + ' 条记录</span></div>';
-      h += '<div class="chart-wrap" style="margin-bottom:14px">' +
-        (tr.enough
-          ? lineChart({
-            series: [{ name: sub.name, color: '#2d77c9', points: tr.connected.map(function (p) {
-              return { date: p.date, value: p.normValue, unit: p.normUnit, extra: (p.condition || '条件未标注') + ' · ' + p.source };
-            }) }],
-            decimals: 2
-          })
-          : msg('可比较的有效日期点不足 2 个，未绘制趋势线。' + (tr.connected.length ? '已有 1 个点，可继续录入或归档新报告。' : '尚无有效数据点。'))) +
-        trendNotes(tr) + '</div>';
-    });
-    h += '<div class="note">四个分项分别成图，不串成同一条线；同一日期的四项结果不会被显示为四次检查。</div>';
-    h += '</div></div>';
-    return h;
-  }
-
-  if (key === 'ogtt_glu' || key === 'ogtt_ins') {
-    var og = L.buildOGTT(filterPointsByRange(list), c.ogtt);
-    h += '<div class="card" style="margin-bottom:14px"><div class="card-h"><h3>OGTT 同次试验曲线</h3>' +
-      '<span class="sub">有有效日期的试验次数：' + og.trialCount + '</span></div><div class="card-b">';
-    if (!og.trials.length) {
-      h += msg('暂无带有效日期的 OGTT 结果。无日期的结果保留在下方历史中，不计正式试验次数、不参与曲线。');
-    } else {
-      h += '<div class="note" style="margin:0 0 12px">只连接同次试验的有效数值点；缺项不补零、不插值。同日多份独立试验按来源隔离，不会混成一条五点曲线。</div>';
-      og.trials.forEach(function (t) {
-        h += '<div class="chart-wrap" style="margin-bottom:14px">' +
-          '<div class="chart-legend"><span class="lg"><i class="sw"></i>' + esc(t.label || '试验') + '</span>' +
-          '<span class="muted" style="font-size:11.5px">来源：' + esc(t.sourceTitle || '已归档记录') +
-          '　试验标识 ' + esc(String(t.trialKey)) + '</span>' +
-          (nz(t.sourceRecordId) ? ' <button class="btn sm" data-src-doc="' + attr(t.sourceRecordId) + '">查看报告来源</button>' : '') + '</div>' +
-          ogttCurve(t) +
-          (t.missing.length ? '<div class="chart-tip">缺项时点：' + esc(t.missing.join('、')) + '。缺项不补零。</div>' : '') +
-          '</div>';
-      });
-      // 相同时点跨年度趋势
-      h += '<div class="card-h" style="padding:0;border:0;margin:8px 0 10px"><h3>相同时点跨年度趋势</h3></div>';
-      og.order.forEach(function (o) {
-        var arr = og.byTimepoint[o.minutes] || [];
-        h += '<div class="sec-t">' + esc(o.label) + '　<span class="muted" style="font-weight:400">' + arr.length + ' 个日期点</span></div>';
-        if (arr.length >= 2) {
-          h += '<div class="chart-wrap" style="margin-bottom:14px">' + lineChart({
-            series: [{ name: o.label, color: '#2d77c9', points: arr.map(function (p) {
-              return { date: p.date, value: p.value, unit: p.unit, extra: p.sourceTitle || '' };
-            }) }], decimals: 2
-          }) + '</div>';
-        } else {
-          h += '<div class="note">该时点不足 2 个有效日期点，未绘制趋势线。</div>';
-        }
-      });
-      h += '<div class="note">同次曲线与跨年度趋势是两类不同的图：前者按空腹 → 30 → 60 → 120 → 180 分钟展示单次试验，后者只比较同一时点在不同日期的结果，不把不同条件串在一起。</div>';
-    }
-    if (og.undated.length) {
-      h += '<div class="note">另有 ' + og.undated.length + ' 条无有效日期的 OGTT 结果，保留在下方历史中，不计正式试验次数。</div>';
-    }
-    h += '</div></div>';
-    return h;
-  }
-
-  if (c.type === '双数值' || /血压/.test(c.name || '')) {
-    var bp = L.buildBPtrend(filterPointsByRange(list));
-    h += '<div class="card" style="margin-bottom:14px"><div class="card-h"><h3>血压趋势</h3>' +
-      '<span class="sub">收缩压 / 舒张压双线，同一纵轴</span></div><div class="card-b">';
-    if (!bp.enough) {
-      h += msg('可比较的有效日期点不足 2 个，未绘制趋势线。');
-    } else if (bp.unitNote) {
-      h += '<div class="err-bar">' + esc(bp.unitNote) + '</div>';
-    } else {
-      h += lineChart({
-        series: [
-          { name: '收缩压', color: '#1f5fa9', points: bp.systolic.map(function (p) { return { date: p.date, value: p.value, unit: p.unit, extra: p.source + (p.condition ? ' · ' + p.condition : '') }; }) },
-          { name: '舒张压', color: '#2d77c9', dash: true, points: bp.diastolic.map(function (p) { return { date: p.date, value: p.value, unit: p.unit, extra: p.source + (p.condition ? ' · ' + p.condition : '') }; }) }
-        ],
-        decimals: 0, unit: 'mmHg'
-      });
-      h += '<div class="chart-tip">两条线共用同一个纵轴范围与图例，不会把收缩压与舒张压接成一条线。单位不一致的记录不合并到同一纵轴。</div>';
-    }
-    h += '</div></div>';
-    // 历史记录卡片由 openIndicator 统一拼一次；在这里也拼一份就会重复。
-    return h;
-  }
-
-  var tr = L.buildTrend(filterPointsByRange(list), { analyze: c.analyze });
-  h += '<div class="card" style="margin-bottom:14px"><div class="card-h"><h3>日期趋势</h3>' +
-    '<span class="sub">' + esc(tr.connected.length ? (tr.connected.length + ' 个有效点') : '暂无有效点') + '</span></div><div class="card-b">';
-  if (!tr.enough) {
-    h += msg(tr.connected.length ? '可比较的有效日期点不足 2 个，未绘制趋势线。已有 ' + tr.connected.length + ' 个点。' : '暂无带有效日期的数值结果。');
-  } else if (tr.tie) {
-    h += '<div class="err-bar">存在不可比较的单位组且数量持平，未选择任一组连线；全部记录保留在下方历史中。</div>';
-  } else {
-    h += lineChart({
-      series: [{ name: c.name, color: '#2d77c9', points: tr.connected.map(function (p) {
-        return { date: p.date, value: p.normValue, unit: p.normUnit, extra: (p.condition ? p.condition + ' · ' : '') + p.source };
-      }) }],
-      decimals: 2, unit: tr.lineUnit
-    });
-    if (tr.lineUnit) h += '<div class="chart-tip">连线单位：' + esc(tr.lineUnit) + '。换算只发生在展示层：原值与原始记录未被改写。</div>';
-  }
-  h += trendNotes(tr) + '</div></div>';
-  return h;
-}
-
-function ogttCurve(t) {
-  var W = 660, H = 200, PL = 52, PR = 18, PT = 14, PB = 34;
-  var iw = W - PL - PR, ih = H - PT - PB;
-  var order = L.OGTT_ORDER;
-  var vals = t.curvePoints.map(function (p) { return p.value; });
-  if (!vals.length) return msg('本次试验没有可绘制的精确数值点。');
-  var vmin = Math.min.apply(null, vals), vmax = Math.max.apply(null, vals);
-  if (vmin === vmax) { vmin -= 1; vmax += 1; }
-  var pad = (vmax - vmin) * 0.15; vmin -= pad; vmax += pad;
-  function X(i) { return PL + (order.length <= 1 ? iw / 2 : i * iw / (order.length - 1)); }
-  function Y(v) { return PT + ih - ((v - vmin) / (vmax - vmin)) * ih; }
-  var grid = '';
-  for (var g = 0; g <= 4; g++) {
-    var yy = PT + ih - (g * ih / 4), val = vmin + (vmax - vmin) * g / 4;
-    grid += '<line x1="' + PL + '" y1="' + yy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + yy.toFixed(1) + '" stroke="#eef1f5"/>' +
-      '<text x="' + (PL - 7) + '" y="' + (yy + 3.5).toFixed(1) + '" text-anchor="end" font-size="10" fill="#8a94a3">' + val.toFixed(2) + '</text>';
-  }
-  var seq = t.curvePoints.slice().sort(function (a, b) { return a.timepoint - b.timepoint; });
-  var path = seq.map(function (p, i) {
-    return (i ? 'L' : 'M') + X(order.findIndex(function (o) { return o.minutes === p.timepoint; })).toFixed(1) + ' ' + Y(p.value).toFixed(1);
-  }).join(' ');
-  var dots = seq.map(function (p) {
-    var idx = order.findIndex(function (o) { return o.minutes === p.timepoint; });
-    return '<circle cx="' + X(idx).toFixed(1) + '" cy="' + Y(p.value).toFixed(1) + '" r="4" fill="#fff" stroke="#2d77c9" stroke-width="2">' +
-      '<title>' + esc(p.label + ' · ' + p.value + ' ' + (p.unit || '') + '（原结果 ' + (p.raw || '') + '）') + '</title></circle>';
-  }).join('');
-  var labs = order.map(function (o, i) {
-    return '<text x="' + X(i).toFixed(1) + '" y="' + (H - 12) + '" text-anchor="middle" font-size="10" fill="#55606f">' + esc(o.label) + '</text>';
-  }).join('');
-  return '<div class="tbl-scroll"><svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="OGTT 曲线" style="min-width:520px">' +
-    grid + '<path d="' + path + '" fill="none" stroke="#2d77c9" stroke-width="2"/>' + dots + labs + '</svg></div>';
-}
-
-function trendNotes(tr) {
-  if (!tr.notes || !tr.notes.length) return '';
-  return '<div class="chart-tip">' + tr.notes.map(esc).join('<br>') + '</div>';
-}
-
-function renderPointHistory(key, c, list, showName) {
-  var rows = list.slice().sort(function (a, b) {
-    var da = L.dateSortKey(a.date), db = L.dateSortKey(b.date);
-    if (da && db) return da < db ? 1 : (da > db ? -1 : 0);
-    if (da) return -1;
-    if (db) return 1;
-    return 0;
-  });
-  var h = '<div class="card"><div class="card-h"><h3>历史记录</h3>' +
-    '<span class="sub">共 ' + rows.length + ' 条，含不参与连线的记录</span></div><div class="card-b">';
-  if (!rows.length) { h += msg('暂无历史记录。'); h += '</div></div>'; return h; }
-  h += '<div class="point-list">' + rows.map(function (p) {
-    var d = L.dateSortKey(p.date);
-    var norm = (p.value !== null && p.value !== undefined)
-      ? L.normalizeForDisplay(c.analyze, p.value, p.unit) : null;
-    var valTxt = norm
-      ? (norm.value + ' ' + (norm.unit || '') + (norm.conversionApplied
-        ? ' <span class="orig">（原值 ' + esc(norm.originalValue + ' ' + norm.originalUnit) + '）</span>' : ''))
-      : (nz(p.result) ? esc(p.result) + ' <span class="orig">（定性结果，不绘制普通趋势）</span>' : '未提供');
-    return '<div class="pr">' +
-      '<span class="dt">' + (d ? esc(L.fmtCN(d)) : '<span class="muted">日期待确认</span>') + '</span>' +
-      (showName ? '<span class="nm">' + esc(p.name || c.name || '') + '</span>' : '') +
-      '<span class="va">' + valTxt + '</span>' +
-      '<span class="src-chip' + (p.source === '报告提取' ? ' report' : '') + '">' + esc(p.source) + '</span>' +
-      (p.condition ? '<span class="muted" style="font-size:11.5px">条件：' + esc(p.condition) + '</span>' : '') +
-      (p.reference ? '<span class="muted" style="font-size:11.5px">原参考范围：' + esc(p.reference) + '</span>' : '') +
-      (p.flag ? '<span class="flag" style="color:#1f5fa9;font-weight:640">' + esc(p.flag) + '</span>' : '') +
-      (p.review && p.review !== '已核对' ? '<span class="src-chip">' + esc(p.review) + '</span>' : '') +
-      (p.sourceRecordId ? '<button class="btn sm ghost" data-src-doc="' + attr(p.sourceRecordId) + '">来源</button>' : '') +
-      (!d ? '<span class="muted" style="font-size:11.5px">不参与连线</span>' : '') +
-      '</div>';
-  }).join('') + '</div>';
-  h += '<div class="note">历史记录显示原参考范围与原报告标记；趋势不会重新计算医学异常状态，也不生成异常 / 正常标签。</div>';
-  h += '</div></div>';
-  return h;
-}
-
-/* ---------------- 19. 全部票据来源 ---------------- */
-
-function openReceipts() {
-  renderReceipts();
-  openLayer('rcLayer');
-  pushHistory('rcLayer');
-}
-
-function renderReceipts() {
-  /* 这个抽屉只有一个入口：概览那张「已记录医疗费用」卡片。
-     卡片按所选成员算，抽屉却读整表 —— 于是同一次点击前后出现两个总额，
-     而且抽屉里不显示任何筛选说明。两边必须同源（§6 交付说明也这么写）。 */
-  var rows = bucket('documents').rows.filter(function (r) {
-    return L.personMatches(r, S.personView);
-  });
-  var fees = L.buildFees(rows);
-  var who = personViewLabel();
-  var h = '';
-  h += '<div class="note" style="margin:0 0 12px">统计范围：<b>' + esc(who) + '</b>' +
-    '，与概览那张费用卡一致；切换成员请回概览。</div>';
-  h += '<div class="card" style="margin-bottom:14px"><div class="card-b">' +
-    '<div class="kv" style="grid-template-columns:118px minmax(0,1fr)">' +
-    '<dt>明确金额总额</dt><dd><b class="num">' + esc(fees.total) + '</b>　' + fees.counts.known + ' 张</dd>' +
-    '<dt>医保支付</dt><dd>' + esc(fees.insurance) + (fees.insuranceMissing ? ' <span class="muted">（' + fees.insuranceMissing + ' 张未提供）</span>' : '') + '</dd>' +
-    '<dt>个人支付</dt><dd>' + esc(fees.selfPay) + (fees.selfMissing ? ' <span class="muted">（' + fees.selfMissing + ' 张未提供）</span>' : '') + '</dd>' +
-    '</div>' +
-    (fees.gapNote ? '<div class="note">' + esc(fees.gapNote) + '</div>' : '') +
-    '<div class="note">未知金额（null、缺失、空串、不可解析）不参与合计；明确零金额是真实数字 0，按有效日期参与年度张数。本列表不是只取第一页，超过单页容量会完整分页读取。</div>' +
-    '</div></div>';
-
-  if (!fees.list.length) {
-    h += '<div class="card"><div class="card-b">' + msg('还没有医疗发票 / 收费单记录。费用入口会先进入本列表，不会默认打开某一张票据。') + '</div></div>';
-    $('rcBody').innerHTML = h;
-    return;
-  }
-
-  var groups = {};
-  var pending = [];
-  fees.list.forEach(function (r) {
-    var d = L.dateSortKey(r.date);
-    if (!d) { pending.push(r); return; }
-    var y = d.slice(0, 4);
-    (groups[y] = groups[y] || []).push(r);
-  });
-
-  Object.keys(groups).sort().reverse().forEach(function (y) {
-    var rows = groups[y];
-    var cents = rows.reduce(function (s, r) { return s + (r.amountCents === null ? 0 : r.amountCents); }, 0);
-    var known = rows.filter(function (r) { return r.amountCents !== null; }).length;
-    var unknown = rows.length - known;
-    h += '<div class="receipt-grp"><div class="rh"><span class="rl">' + esc(y) + ' 年</span>' +
-      '<span class="rr">' + rows.length + ' 张';
-    if (unknown) h += '（明确金额 ' + known + ' 张，金额未知 ' + unknown + ' 张未计入）';
-    h += '　合计 ' + esc(L.fmtMoney(cents)) + '</span></div>';
-    rows.sort(function (a, b) { return (L.dateSortKey(a.date) || '') < (L.dateSortKey(b.date) || '') ? 1 : -1; });
-    h += rows.map(receiptRow).join('') + '</div>';
-  });
-
-  if (pending.length) {
-    h += '<div class="receipt-grp"><div class="rh"><span class="rl">日期待确认</span>' +
-      '<span class="rr">' + pending.length + ' 张　金额计入总额但不进入年度图</span></div>';
-    h += pending.map(receiptRow).join('') + '</div>';
-  }
-  h += '<div class="note">点击任意一行进入该张票据的收费明细与原始文件。返回会回到本列表原来的位置，再返回回到数据概览原来的位置。</div>';
-
-  $('rcBody').innerHTML = h;
-  qsa('#rcBody [data-rc-doc]').forEach(function (r) {
-    r.onclick = function () { openDoc(r.dataset.rcDoc, '票据来源'); };
-  });
-}
-
-function receiptRow(r) {
-  var unknown = r.amountCents === null;
-  return '<div class="rc-row" data-rc-doc="' + attr(r.recordId) + '">' +
-    '<span class="d">' + (L.dateSortKey(r.date) ? esc(L.fmtCNShort(r.date)) : L.DATE_STATUS.PENDING) + '</span>' +
-    '<span class="nm">' + esc(nz(r.title) || '(无标题)') + '</span>' +
-    '<span class="hosp">' + esc(nz(r.hospital) || '医院未提供') + '</span>' +
-    '<span class="amt num' + (unknown ? ' unknown' : '') + '">' + (unknown ? '金额未知' : esc(L.fmtMoney(r.amountCents))) + '</span></div>';
-}
-
 /* ---------------- 20. 历史与初始化 ---------------- */
 
 function pushHistory(name) {
@@ -4748,7 +4103,6 @@ window.__hrwDebug = {
   openDoc: function (id, from) { return openDoc(id, from); },
   openStructDrawer: function (id) { return openStructDrawer(id); },
   openDailyDrawer: function (key, presetDate) { return openDailyDrawer(key, presetDate); },
-  openFollowDrawer: function () { return openFollowDrawer(); },
   openImportDrawer: function (target, preset) { return openImportDrawer(target, preset); },
   closeDrawers: function () { return closeDrawers(); },
   openLayer: function (id) { return openLayer(id); },

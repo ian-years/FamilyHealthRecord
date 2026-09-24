@@ -253,6 +253,30 @@ def main():
               len([r for r in rows3 if r.get('title') == '幽灵 id 用例']) == 1
               and ids3 and ids3[0] != 99999999, json.dumps(j3)[:120])
 
+        print('\n=== 7. 「未指定」是一个独立视图，不是「全部」（person=0） ===')
+        # 前端成员切换器把「全部 / 未指定 / 各成员」映射成 null / 0 / id。
+        # 曾经「未指定」被当成「全部」，于是它的费用卡、关注清单、趋势都显示全员数据。
+        # 这里把三者的分区关系钉死：成员 + 未指定 == 全部，且互不重叠。
+        call(op, port, '/api/db/put', {'table': 'documents', 'rows': [
+            {'title': '分区用例·我的票据', 'document_type': '医疗发票/收费单',
+             'primary_date': '2025-03-01', 'date_status': '已确认',
+             'person_id': legal, 'amount': 11.11},
+            {'title': '分区用例·未归属票据', 'document_type': '医疗发票/收费单',
+             'primary_date': '2025-03-02', 'date_status': '已确认', 'amount': 22.22},
+        ]})
+
+        def fee(qs):
+            return call(op, port, '/api/fees/summary' + qs)[1]['fees']['total_cents']
+
+        all_c, me_c, none_c = fee(''), fee('?person=%d' % legal), fee('?person=0')
+        check('费用分区：成员 + 未指定 == 全部（悬空归属会立刻少一条）',
+              me_c + none_c == all_c, 'all=%r me=%r none=%r' % (all_c, me_c, none_c))
+        check('未归属的票据只落在「未指定」名下，不落成员、也不等于全部',
+              me_c == 1111 and none_c == 2222, 'me=%r none=%r' % (me_c, none_c))
+        code, w = call(op, port, '/api/watched?person=0')
+        check('「未指定」没有关注清单（关注是「谁关心某项」，必须有一位主人）',
+              (w.get('watched') or []) == [], json.dumps(w, ensure_ascii=False)[:120])
+
         return finish(proc, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

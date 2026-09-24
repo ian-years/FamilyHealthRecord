@@ -42,13 +42,15 @@ var V2 = (function () {
     else if (typeof alert === 'function') alert(text);
   }
 
-  /** 当前视图对应的成员 id；「全部」返回 null（后端据此不过滤人）。 */
+  /** 当前视图对应的成员值：
+   *  「全部」→ null（后端不过滤人）；「未指定」→ 0（只看无归属的行）；成员 → 正整数。
+   *  以前 0 被当成「全部」返回 null，于是「未指定」视图里显示的是全员的数据。 */
   function curPerson() {
     if (!C || !C.S) return null;
     var S = C.S;
     if (C.L && typeof C.L.isAllView === 'function' && C.L.isAllView(S.personView)) return null;
     var n = Number(S.personView);
-    return isFinite(n) && n > 0 ? n : null;
+    return isFinite(n) && n >= 0 ? n : null;
   }
 
   function money(cents) {
@@ -83,7 +85,7 @@ var V2 = (function () {
     if (!C) return Promise.resolve();
     busy = true;
     var pid = curPerson();
-    var qs = pid ? ('?person=' + pid) : '';
+    var qs = (pid === null) ? '' : ('?person=' + pid);   // 0 = 未指定，必须显式带上
     return Promise.all([
       get('/api/indicators/categories'),
       get('/api/watched' + qs),
@@ -106,21 +108,26 @@ var V2 = (function () {
     var esc = C.esc, attr = C.attr;
     var pid = curPerson();
     var isAll = pid === null;
+    var isUnassigned = pid === 0;   // 「未指定」：档案还没有归属成员
 
     var head = '<div class="card-h"><h3>关注指标 <span class="sub">最新结果与趋势概览</span></h3>' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
       '<button class="btn sm" id="v2BtnFollow">添加关注</button>' +
       '<button class="btn sm" id="v2BtnManage">指标目录</button>' +
+      '<button class="btn sm" id="v2BtnCustom">自定义指标</button>' +
       '</div></div>';
 
     var body = '<div class="card-b">';
     body += '<div class="note" style="margin:0 0 11px">可关注的指标来自已归档报告里的全部检验项' +
       '（已归一化：合并同一指标的不同写法、修正识别错误）。' +
-      (isAll ? '当前是「全部成员」视图，切到具体成员才能看到各人的数值与趋势。' : '') +
+      (isAll ? '当前是「全部成员」视图，切到具体成员才能看到各人的数值与趋势。'
+        : (isUnassigned ? '当前是「未指定」视图（档案还没有归属成员）。关注是按成员保存的，切到具体成员才能看到。' : '')) +
       '</div>';
 
     if (!watched.length) {
-      body += '<div class="empty">还没有关注任何指标。点「添加关注」，从已识别的指标里挑选。</div>';
+      body += '<div class="empty">' + (isUnassigned
+        ? '「未指定」的档案还没有归属成员，没有属于自己的关注清单。'
+        : '还没有关注任何指标。点「添加关注」，从已识别的指标里挑选。') + '</div>';
     } else {
       body += '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
         '<th>指标名</th><th>分类</th><th>最新结果</th><th>最新日期</th>' +
@@ -157,6 +164,14 @@ var V2 = (function () {
     if (b1) b1.onclick = openFollowDrawerV2;
     var b2 = document.getElementById('v2BtnManage');
     if (b2) b2.onclick = openCatalogManager;
+    var b3 = document.getElementById('v2BtnCustom');
+    if (b3) b3.onclick = function () { if (C.openCustomDrawer) C.openCustomDrawer(); };
+
+    /* 「关注指标」KPI 与这张卡必须同源：卡上是 /api/watched 的清单，
+       KPI 却还在数目录行上的 followers 就会出现「卡里 3 项、KPI 写 5 项」。
+       卡是唯一真源的渲染点，顺手把 KPI 一起刷新。 */
+    var kc = document.getElementById('kpiWatchedCount');
+    if (kc) kc.textContent = String(watched.length);
 
     C.qsa('#cardFollow [data-v2-ind]').forEach(function (b) {
       b.onclick = function () { openIndicatorById(b.getAttribute('data-v2-ind')); };
@@ -164,13 +179,68 @@ var V2 = (function () {
     C.qsa('#cardFollow [data-v2-unwatch]').forEach(function (b) {
       b.onclick = function () {
         /* 「全部」视图的列表是去重后的并集，没有单一归属人，
-           person_id 传 'all' 表示把所有成员对它的关注一起取消。 */
+           person_id 传 'all' 表示把所有成员对它的关注一起取消；
+           具体成员（含「未指定」）则只取消他自己的。 */
+        var cur = curPerson();
         post('/api/watched/remove', {
-          person_id: curPerson() || 'all',
+          person_id: (cur === null ? 'all' : cur),
           indicator_id: Number(b.getAttribute('data-v2-unwatch'))
         }).then(function () { refresh(); });
       };
     });
+  }
+
+  /* ------------------------------------------------------------ 票据来源层 */
+
+  /* 费用卡上的「查看全部票据来源」。
+     列表直接用费用卡那份 fees.items —— 不再另算一遍：旧实现是卡片按成员过滤、
+     抽屉读整表，于是同一次点击前后出现两个总额。 */
+  function openReceiptsLayer() {
+    if (!C || !fees) return;
+    var esc = C.esc, attr = C.attr, msg = C.msg;
+    var body = document.getElementById('rcBody');
+    if (!body) return;
+    var h = '<div class="note" style="margin:0 0 12px">统计范围：<b>' +
+      esc(C.personViewLabel()) + '</b>，与概览那张费用卡同源（同一份服务端口径）。</div>';
+    h += '<div class="card" style="margin-bottom:14px"><div class="card-b">' +
+      '<div class="kv" style="grid-template-columns:118px minmax(0,1fr)">' +
+      '<dt>已录入总额</dt><dd><b class="num">' + money(fees.total_cents) + '</b>　' +
+      fees.count + ' 张</dd>' +
+      '<dt>金额未知</dt><dd>' + fees.unknown_count +
+      ' 张 <span class="muted">（不计入合计，也不在本列表中）</span></dd>' +
+      '</div><div class="note">金额未知（缺失、空串、不可解析）不参与合计；' +
+      '明确零金额是真实的 0 元，照常参与统计。</div></div></div>';
+    var items = fees.items || [];
+    if (!items.length) {
+      h += '<div class="card"><div class="card-b">' +
+        msg('这个范围下还没有录入金额的档案。') + '</div></div>';
+    } else {
+      h += '<div class="card"><div class="card-h"><h3>票据来源</h3><span class="sub">共 ' +
+        items.length + ' 条，按日期倒序</span></div><div class="card-b"><div class="point-list">';
+      items.forEach(function (it) {
+        h += '<div class="pr">' +
+          '<span class="dt">' + (it.date ? esc(C.L.fmtCN(it.date))
+            : '<span class="muted">无日期</span>') + '</span>' +
+          '<span class="va"><b>' + money(it.amount_cents) + '</b></span>' +
+          '<span class="muted" style="font-size:11.5px">' + esc(it.document_type || '') + '</span>' +
+          esc(it.title || '(无标题)') +
+          (it.document_id
+            ? '<button class="btn sm ghost" data-src-doc="' + attr(it.document_id) + '">来源</button>'
+            : '') +
+          '</div>';
+      });
+      h += '</div></div></div>';
+    }
+    body.innerHTML = h;
+    C.qsa('#rcBody [data-src-doc]').forEach(function (b) {
+      b.onclick = function () { C.openDoc(b.getAttribute('data-src-doc'), '费用来源'); };
+    });
+    C.liftLayerOnTop('rcLayer');
+    var layer = document.getElementById('rcLayer');
+    if (layer && !layer.classList.contains('on')) {
+      C.openLayer('rcLayer');
+      C.pushHistory('rcLayer');
+    }
   }
 
   /* ------------------------------------------------------------ 费用卡 */
@@ -195,8 +265,20 @@ var V2 = (function () {
       }
       h += '<div class="note">统计口径：只要档案填了金额或含有收费明细就计入，' +
         '不再限定「医疗发票」类型。</div>';
+      h += '<div style="margin-top:12px">' +
+        '<button class="btn primary" id="v2BtnReceipts">查看全部票据来源</button></div>';
       h += '</div>';
       card.innerHTML = h;
+      var br = document.getElementById('v2BtnReceipts');
+      if (br) br.onclick = openReceiptsLayer;
+
+      /* KPI 与卡片必须同源：卡片读 /api/fees/summary，KPI 若还在按前端的
+         L.buildFees(recs) 现算，同一次点击就会出现两个总额。 */
+      var kn = document.getElementById('kpiFees');
+      if (kn) kn.textContent = money(fees.total_cents).replace('¥', '');
+      var kd = document.getElementById('kpiFeesDetail');
+      if (kd) kd.textContent = '明确金额 ' + fees.count + ' 张；金额未知 ' +
+        fees.unknown_count + ' 张未计入';
     }
 
     if (yearCard) {
@@ -224,13 +306,14 @@ var V2 = (function () {
     var box = document.getElementById('followBody');
     if (!box || !C) return;
     var esc = C.esc, attr = C.attr;
-    var isAll = curPerson() === null;
+    var cur = curPerson();
+    /* 「全部」与「未指定」都没有一个可写的主语（关注是「谁关心某项」），
+       让用户先选人再勾；具体成员视图直接用当前成员。 */
+    var isAll = (cur === null || cur === 0);
     var persons = (C.S && C.S.persons) || [];
-    /* 「全部成员」视图下关注没有唯一归属，让用户先选人再勾；
-       具体成员视图直接用当前成员。 */
     var pickedPid = isAll
       ? (persons.length ? Number(persons[0].id) : null)
-      : curPerson();
+      : cur;
     if (pickedPid === null) { notify('还没有家庭成员，先到「成员」页添加。', true); return; }
 
     // 抽屉里必须写清正在编辑谁的清单：关注是按成员存的，进错了人却没提示，
@@ -365,6 +448,18 @@ var V2 = (function () {
   }
 
   /* ------------------------------------------------------------ 指标详情 */
+
+  /** 按稳定键打开指标详情。日常录入抽屉手里只有 key（没有 id），
+      存完要顺手刷新详情层就靠这条路径 —— 否则它会去调旧实现，
+      于是同一个 #indBody 被两套渲染器各写一遍。 */
+  function openIndicatorByKey(key, fromLabel) {
+    if (!C || !key) return Promise.resolve(false);
+    return get('/api/indicators/get?key=' + encodeURIComponent(key)).then(function (d) {
+      if (!d || !d.ok || !d.indicator) { notify('找不到这个指标', true); return false; }
+      openIndicatorById(d.indicator.id, fromLabel);
+      return true;
+    })['catch'](function () { return false; });
+  }
 
   function openIndicatorById(id, fromLabel) {
     if (!C) return;
@@ -652,6 +747,7 @@ var V2 = (function () {
     mountOverview: mountOverview,
     refresh: refresh,
     openIndicatorById: openIndicatorById,
+    openIndicatorByKey: openIndicatorByKey,
     openCatalogManager: openCatalogManager,
     isEnabled: function () { return enabled; }
   };

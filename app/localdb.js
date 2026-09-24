@@ -563,7 +563,7 @@ var serverDriver = {
     }
   },
 
-  /* ------ 家庭成员（存在服务端 meta 表里，不在四张数据表内） ------ */
+  /* ------ 家庭成员（存在服务端 persons 表里） ------ */
 
   async persons() {
     var j = await this._req('/api/persons');
@@ -773,7 +773,7 @@ function createLocal(opts) {
         });
       }
       var backup = buildBackup(tables, files);
-      // 成员名单存在服务端 meta 表里，不在四张数据表内。
+      // 成员名单存在服务端 persons 表里，不在本地表的还原范围内。
       // 不带上的话会出现「档案恢复了、人却没了」。老备份没有这个键时留空。
       try {
         if (typeof D.persons === 'function') {
@@ -836,7 +836,7 @@ function createLocal(opts) {
     },
 
     /* ---- 家庭成员 ----
-       名单存在服务端 meta 表里（不在四张数据表内）。
+       名单存在服务端 persons 表里。
        idbDriver / memoryDriver 不支持，会用 hasPersons=false 如实告知，
        由上层决定降级——不给「看起来支持、实则空转」的假能力。 */
 

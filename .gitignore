@@ -1,0 +1,41 @@
+# ===== 敏感数据：绝不进版本库 =====
+# 运行时数据目录（真实健康数据、附件原文件、解析日志、模型密钥配置）
+data/
+# 探针从 /api/db/rows 导出的真实数据（本轮就逮到一份 363 KB 的落在 _probe\ 且没被挡住）
+_probe/*.json
+
+# 受控测试资料原件：文件名本身就是「真实姓名 + 体检编号」，所以这里只写形状、不写名字
+/*_体检报告_*.pdf
+/*体检报告*.pdf
+# 身份信息与原件路径清单（脱敏自检的输入，含真实姓名/证件号，绝不入库）
+_parse/leak_tokens.json
+# 受控资料的解析与结构化产物
+_parse/out/
+_parse/payload.json
+_parse/insert.json
+# 排查解析问题时导出的原文（含真实个人信息，绝不入库）
+_probe/**/*.md
+_probe/**/task-manifest.json
+_probe/out*/
+# 真实体检报告的脱敏归档包（个人医疗数据的派生）
+archive-package-health-2025-12-13.json
+
+# ===== Python 缓存 =====
+__pycache__/
+*.pyc
+
+# ===== 自测产物（大文件、易变，代码本身保留） =====
+_selftest/*.png
+_selftest/selftest.log.txt
+_selftest/data/
+# 跑自测时建的目录联接，指向本机 node_modules，不进版本库
+_selftest/node_modules/
+# 本地服务的运行日志
+_selftest/*.log
+*.log
+
+# ===== IDE / 系统 =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

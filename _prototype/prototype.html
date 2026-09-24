@@ -1,0 +1,1696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>个人健康档案工作台 · 设计原型（阶段2）</title>
+<style>
+:root{
+  --bg:#f4f6f9; --surface:#ffffff; --surface-2:#fafbfc;
+  --line:#e2e6ed; --line-strong:#cbd3df;
+  --text:#1c2430; --text-2:#55606f; --text-3:#8a94a3;
+  --blue:#1f5fa9; --blue-2:#2d77c9; --blue-soft:#e8f0fa; --blue-softer:#f3f7fc;
+  --radius:8px; --radius-lg:12px;
+  --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+  --shadow-lg:0 8px 24px rgba(16,24,40,.10),0 2px 6px rgba(16,24,40,.06);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{
+  font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+  background:var(--bg); color:var(--text); font-size:14px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;font-size:inherit;cursor:pointer}
+.prototype-banner{
+  background:#1c2430;color:#c9d4e2;font-size:12px;padding:7px 20px;
+  letter-spacing:.3px;position:sticky;top:0;z-index:200;
+}
+.prototype-banner b{color:#fff;font-weight:600}
+.prototype-banner span{color:#7f8fa3}
+
+/* ---------- App shell ---------- */
+.app{display:flex;min-height:calc(100vh - 32px)}
+.sidebar{
+  width:196px;flex:0 0 196px;background:var(--surface);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;padding:0;min-width:0
+}
+.brand{
+  padding:18px 18px 14px;border-bottom:1px solid var(--line)
+}
+.brand h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.2px}
+.brand p{margin:3px 0 0;font-size:11.5px;color:var(--text-3)}
+.nav{padding:10px 8px;display:flex;flex-direction:column;gap:2px}
+.nav button{
+  display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+  padding:9px 11px;border:0;border-radius:6px;background:transparent;color:var(--text-2);
+  font-size:13.5px;transition:.12s
+}
+.nav button:hover{background:var(--blue-softer);color:var(--text)}
+.nav button.active{background:var(--blue-soft);color:var(--blue);font-weight:600}
+.nav .ico{width:15px;height:15px;flex:0 0 15px;opacity:.85}
+.side-foot{margin-top:auto;padding:12px 16px;border-top:1px solid var(--line);font-size:11px;color:var(--text-3)}
+
+.main{flex:1;min-width:0;padding:22px 26px 60px;overflow-x:hidden}
+.page-head{margin-bottom:18px}
+.page-head h2{margin:0;font-size:21px;font-weight:650;letter-spacing:-.3px}
+.page-head p{margin:5px 0 0;color:var(--text-2);font-size:13px;max-width:760px}
+.page-head .tools{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+.screen{display:none}
+.screen.on{display:block}
+
+/* ---------- Atoms ---------- */
+.btn{
+  border:1px solid var(--line-strong);background:var(--surface);color:var(--text-2);
+  padding:7px 13px;border-radius:6px;font-size:13px;transition:.12s;white-space:nowrap
+}
+.btn:hover{border-color:var(--blue-2);color:var(--blue)}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover{background:var(--blue-2);border-color:var(--blue-2);color:#fff}
+.btn.sm{padding:4px 9px;font-size:12px}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.ghost:hover{background:var(--blue-softer)}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow)
+}
+.card-h{
+  padding:13px 16px;border-bottom:1px solid var(--line);display:flex;
+  align-items:center;justify-content:space-between;gap:12px;min-width:0
+}
+.card-h h3{margin:0;font-size:14px;font-weight:620;white-space:nowrap}
+.card-h .sub{font-size:11.5px;color:var(--text-3);font-weight:400}
+.card-b{padding:16px}
+.grid{display:grid;gap:14px}
+.muted{color:var(--text-3)}
+.tag{
+  display:inline-flex;align-items:center;padding:1px 7px;border-radius:4px;
+  font-size:11.5px;background:var(--blue-soft);color:var(--blue);white-space:nowrap
+}
+.tag.gray{background:#eef1f5;color:var(--text-2)}
+.tag.outline{background:transparent;border:1px solid var(--line-strong);color:var(--text-2)}
+.tag.solid{background:#3b4a5e;color:#fff}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.empty{
+  padding:34px 20px;text-align:center;color:var(--text-3);font-size:13px;
+  background:var(--surface-2);border:1px dashed var(--line-strong);border-radius:var(--radius)
+}
+.cols-2{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:14px;align-items:start}
+@media(max-width:1180px){.cols-2{grid-template-columns:minmax(0,1fr)}}
+
+/* ---------- Overview ---------- */
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
+@media(max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:14px 15px;min-width:0}
+.kpi .k{font-size:12px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .v{font-size:24px;font-weight:640;margin-top:5px;letter-spacing:-.5px}
+.kpi .u{font-size:12px;color:var(--text-3);font-weight:400;margin-left:3px}
+.kpi .d{font-size:11.5px;color:var(--text-3);margin-top:3px}
+
+table.tbl{width:100%;border-collapse:collapse;font-size:13px}
+table.tbl th{
+  text-align:left;font-weight:600;color:var(--text-3);font-size:11.5px;
+  padding:0 10px 8px;border-bottom:1px solid var(--line);white-space:nowrap
+}
+table.tbl td{padding:10px;border-bottom:1px solid #f0f3f7;vertical-align:middle}
+table.tbl tr:last-child td{border-bottom:0}
+table.tbl tr:hover td{background:var(--blue-softer)}
+table.tbl .r{text-align:right}
+.spark{display:inline-block;vertical-align:middle}
+.range-tabs{display:inline-flex;border:1px solid var(--line-strong);border-radius:6px;overflow:hidden}
+.range-tabs button{border:0;background:var(--surface);padding:5px 12px;font-size:12.5px;color:var(--text-2)}
+.range-tabs button+button{border-left:1px solid var(--line)}
+.range-tabs button.on{background:var(--blue);color:#fff}
+.note{font-size:11.5px;color:var(--text-3);margin-top:9px;line-height:1.55}
+
+/* bar chart */
+.bars{display:flex;align-items:flex-end;gap:10px;height:128px;padding:0 2px}
+.bars .bar{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:5px;cursor:pointer}
+.bars .bar .fill{width:100%;max-width:52px;background:var(--blue);border-radius:3px 3px 0 0;transition:.15s;min-height:2px}
+.bars .bar:hover .fill{background:var(--blue-2)}
+.bars .bar .lab{font-size:11px;color:var(--text-3)}
+.bars .bar .amt{font-size:11px;color:var(--text-2)}
+
+/* year activity */
+.year-grp{border:1px solid var(--line);border-radius:var(--radius);margin-bottom:8px;overflow:hidden}
+.year-h{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px 13px;background:var(--surface-2);cursor:pointer;font-size:13px
+}
+.year-h:hover{background:var(--blue-softer)}
+.year-h .l{display:flex;align-items:center;gap:9px;min-width:0}
+.caret{width:0;height:0;border-left:4.5px solid var(--text-3);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:.15s}
+.year-grp.open .caret{transform:rotate(90deg)}
+.months{display:none;padding:4px 13px 11px}
+.year-grp.open .months{display:block}
+.mrow{display:flex;align-items:center;gap:10px;padding:5px 0;font-size:12.5px;color:var(--text-2)}
+.mrow .mn{width:42px;flex:0 0 42px;color:var(--text-3)}
+.mrow .mbar{height:7px;background:var(--blue);border-radius:2px;min-width:2px}
+.mrow .mc{margin-left:auto;color:var(--text-3);font-size:11.5px}
+
+.dist{display:flex;flex-direction:column;gap:9px}
+.dist .row{display:flex;align-items:center;gap:10px;font-size:12.5px;min-width:0}
+.dist .row .nm{width:118px;flex:0 0 118px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dist .row .track{flex:1;height:8px;background:#eef1f5;border-radius:3px;overflow:hidden;min-width:0}
+.dist .row .fillb{height:100%;background:var(--blue);border-radius:3px}
+.dist .row .ct{width:30px;text-align:right;color:var(--text-2)}
+
+/* ---------- Timeline ---------- */
+.stats-strip{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:14px;padding:13px 16px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg)}
+.stats-strip .s{min-width:0}
+.stats-strip .s .k{font-size:11.5px;color:var(--text-3)}
+.stats-strip .s .v{font-size:17px;font-weight:640;margin-top:1px}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.filters input[type=search]{
+  padding:7px 11px;border:1px solid var(--line-strong);border-radius:6px;font-size:13px;
+  min-width:210px;font-family:inherit;background:var(--surface)
+}
+.filters select{padding:7px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13px;background:var(--surface);font-family:inherit}
+
+.year-block{margin-bottom:6px}
+.year-title{
+  display:flex;align-items:center;gap:10px;margin:16px 0 9px;font-size:15px;font-weight:640
+}
+.year-title .ln{flex:1;height:1px;background:var(--line)}
+.month-title{
+  display:flex;align-items:center;gap:9px;margin:13px 0 8px;font-size:12.5px;color:var(--text-2);font-weight:600
+}
+.month-title .cnt{font-weight:400;color:var(--text-3);font-size:11.5px}
+.date-grp{
+  border-left:2px solid var(--blue-soft);padding-left:15px;margin-left:5px;margin-bottom:11px;position:relative
+}
+.date-grp::before{
+  content:"";position:absolute;left:-5.5px;top:8px;width:9px;height:9px;border-radius:50%;
+  background:var(--surface);border:2px solid var(--blue-2)
+}
+.date-head{display:flex;align-items:baseline;gap:9px;margin-bottom:7px;flex-wrap:wrap}
+.date-head .dd{font-size:13.5px;font-weight:640;color:var(--blue)}
+.doc-card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:11px 13px;margin-bottom:7px;cursor:pointer;transition:.12s;box-shadow:var(--shadow)
+}
+.doc-card:hover{border-color:var(--blue-2);box-shadow:var(--shadow-lg)}
+.doc-card .t{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.doc-card .tt{font-size:13.5px;font-weight:600}
+.doc-card .meta{font-size:11.5px;color:var(--text-3);margin-top:3px;display:flex;gap:12px;flex-wrap:wrap}
+.doc-card ul{margin:7px 0 0;padding-left:16px;font-size:12.5px;color:var(--text-2)}
+.doc-card ul li{margin:2px 0}
+.more-month{
+  padding:9px 13px;border:1px dashed var(--line-strong);border-radius:var(--radius);
+  font-size:12.5px;color:var(--blue);background:var(--surface);text-align:center;cursor:pointer;margin-bottom:11px
+}
+.more-month:hover{background:var(--blue-softer)}
+
+/* ---------- Detail layer (fixed, independent scroll) ---------- */
+.detail-layer{
+  position:fixed;inset:0;background:var(--bg);z-index:150;display:none;
+  overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch
+}
+.detail-layer.on{display:block}
+.detail-top{
+  position:sticky;top:0;z-index:5;background:rgba(255,255,255,.96);
+  backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:11px 22px
+}
+.detail-top .inner{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:12px;min-width:0}
+.detail-top .bk{
+  display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-strong);
+  background:var(--surface);padding:6px 12px;border-radius:6px;font-size:13px;color:var(--text-2)
+}
+.detail-top .bk:hover{border-color:var(--blue-2);color:var(--blue)}
+.detail-top .ttl{font-size:14px;font-weight:620;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.detail-body{max-width:1240px;margin:0 auto;padding:18px 22px 70px}
+.split{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:16px;align-items:start}
+@media(max-width:1040px){.split{grid-template-columns:minmax(0,1fr)}}
+.viewer{background:#2b3440;border-radius:var(--radius-lg);padding:14px;min-width:0}
+.viewer .stage{
+  background:#3a444f;border-radius:var(--radius);height:330px;display:flex;align-items:center;
+  justify-content:center;color:#93a1b1;font-size:12.5px;position:relative;overflow:hidden
+}
+.viewer .stage .paper{
+  background:#fff;width:74%;height:84%;border-radius:3px;box-shadow:0 6px 18px rgba(0,0,0,.3);
+  padding:15px;color:#4a5563;font-size:10.5px;line-height:1.7;overflow:hidden
+}
+.viewer .stage .paper .ph{height:8px;width:58%;background:#dde3ea;margin-bottom:9px;border-radius:2px}
+.viewer .stage .paper .pl{height:5px;background:#eaeef3;margin:6px 0;border-radius:2px}
+.thumbs{display:flex;gap:7px;margin-top:11px;flex-wrap:wrap}
+.thumbs .th{
+  width:52px;height:66px;border-radius:4px;border:2px solid transparent;background:#fff;
+  cursor:pointer;flex:0 0 auto;overflow:hidden;padding:5px;display:flex;flex-direction:column;gap:3px
+}
+.thumbs .th.on{border-color:var(--blue-2)}
+.thumbs .th .l{height:4px;background:#dde3ea;border-radius:1px}
+.thumbs .th .num{font-size:9px;color:#8b96a4;text-align:center}
+.viewer-bar{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
+.viewer-bar .btn{background:transparent;border-color:#4b5665;color:#b8c4d2}
+.viewer-bar .btn:hover{border-color:var(--blue-2);color:#fff}
+
+.kv{display:grid;grid-template-columns:96px minmax(0,1fr);gap:7px 14px;font-size:13px}
+.kv dt{color:var(--text-3);font-size:12px;margin:0}
+.kv dd{margin:0;min-width:0;word-break:break-word}
+.sec-t{font-size:12px;font-weight:640;color:var(--text-2);margin:0 0 9px;letter-spacing:.2px}
+.res-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.res-tbl th{text-align:left;font-size:11px;color:var(--text-3);font-weight:600;padding:0 8px 7px;border-bottom:1px solid var(--line);white-space:nowrap}
+.res-tbl td{padding:8px;border-bottom:1px solid #f2f5f8}
+.res-tbl .flag{color:var(--blue);font-weight:640}
+.res-tbl .ref{color:var(--text-3);font-size:11.5px}
+.minor{
+  margin-top:14px;padding:11px 13px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:var(--radius);font-size:12px;color:var(--text-2)
+}
+.src-block{
+  background:var(--blue-softer);border-left:3px solid var(--blue-2);border-radius:0 var(--radius) var(--radius) 0;
+  padding:11px 13px;font-size:12.5px;color:var(--text-2);line-height:1.7
+}
+.fold-json summary{cursor:pointer;font-size:12px;color:var(--text-2);padding:7px 0}
+.fold-json pre{
+  background:#f7f9fb;border:1px solid var(--line);border-radius:6px;padding:11px;
+  font-size:11px;line-height:1.6;overflow-x:auto;color:#4a5563;margin:6px 0 0
+}
+
+/* ---------- Drugs ---------- */
+.drug-groups{display:grid;gap:14px}
+.drug-card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);
+  padding:14px 15px;box-shadow:var(--shadow);cursor:pointer;transition:.12s;min-width:0
+}
+.drug-card:hover{border-color:var(--blue-2);box-shadow:var(--shadow-lg)}
+.drug-card .top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-width:0}
+.drug-card .nm{font-size:14px;font-weight:640;min-width:0;word-break:break-word}
+.drug-card .gen{font-size:11.5px;color:var(--text-3);margin-top:2px}
+.drug-card .rows{margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--text-2)}
+.drug-card .rows .rr{display:flex;gap:8px;min-width:0}
+.drug-card .rows .rr .lab{color:var(--text-3);flex:0 0 64px}
+.drug-card .acts{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap;padding-top:11px;border-top:1px solid var(--line)}
+.group-head{display:flex;align-items:center;gap:10px;margin:4px 0 10px}
+.group-head h3{margin:0;font-size:14.5px;font-weight:640}
+.group-head .ct{font-size:12px;color:var(--text-3)}
+.group-head .ln{flex:1;height:1px;background:var(--line)}
+.drug-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.today-bar{
+  background:var(--blue-softer);border:1px solid #d3e2f4;border-radius:var(--radius-lg);
+  padding:13px 15px;margin-bottom:14px
+}
+.today-bar .h{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:620}
+.today-bar .list{margin-top:9px;display:flex;gap:9px;flex-wrap:wrap}
+.today-bar .pill{
+  background:var(--surface);border:1px solid var(--line);border-radius:20px;
+  padding:5px 12px;font-size:12.5px;color:var(--text-2)
+}
+
+/* expiry marks — blue/gray only, no red/yellow/green */
+.exp{display:inline-flex;align-items:center;gap:4px;font-size:11.5px}
+.exp.exp-soon{background:var(--blue-soft);color:var(--blue);padding:1px 7px;border-radius:4px}
+.exp.exp-near{background:#eef1f5;color:var(--text-2);padding:1px 7px;border-radius:4px}
+.exp.exp-past{border:1px solid var(--line-strong);color:var(--text-3);padding:1px 7px;border-radius:4px;background:var(--surface)}
+.exp.exp-unknown{color:var(--text-3);border-bottom:1px dashed var(--line-strong)}
+
+/* ---------- Indicator detail ---------- */
+.chart-wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px}
+.chart-legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:var(--text-2)}
+.chart-legend .lg{display:inline-flex;align-items:center;gap:6px}
+.chart-legend .sw{width:16px;height:2px;border-radius:1px;background:var(--blue)}
+.chart-legend .sw.dash{background:linear-gradient(90deg,var(--blue-2) 0 4px,transparent 4px 8px);height:2px}
+.chart-tip{
+  margin-top:11px;padding:9px 12px;background:var(--blue-softer);border:1px solid #d3e2f4;
+  border-radius:var(--radius);font-size:12px;color:var(--text-2)
+}
+.point-list{margin-top:12px;font-size:12.5px}
+.point-list .pr{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #f2f5f8;align-items:center}
+.point-list .pr:last-child{border-bottom:0}
+.point-list .dt{color:var(--text-3);width:86px;flex:0 0 86px;font-variant-numeric:tabular-nums}
+.point-list .va{font-weight:600;font-variant-numeric:tabular-nums}
+.point-list .orig{color:var(--text-3);font-size:11.5px}
+.src-chip{
+  font-size:11px;padding:1px 7px;border-radius:4px;background:#eef1f5;color:var(--text-2);white-space:nowrap
+}
+.src-chip.report{background:var(--blue-soft);color:var(--blue)}
+
+/* ---------- Receipts ---------- */
+.receipt-grp{margin-bottom:16px}
+.receipt-grp .rh{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 13px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:var(--radius);margin-bottom:8px;font-size:13px
+}
+.receipt-grp .rh .rl{display:flex;align-items:center;gap:10px;font-weight:640}
+.receipt-grp .rh .rr{color:var(--text-2);font-size:12.5px}
+.rc-row{
+  display:flex;align-items:center;gap:12px;padding:11px 13px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--radius);margin-bottom:6px;cursor:pointer;
+  transition:.12s;font-size:13px;min-width:0
+}
+.rc-row:hover{border-color:var(--blue-2);background:var(--blue-softer)}
+.rc-row .d{width:88px;flex:0 0 88px;color:var(--text-3);font-size:12px;font-variant-numeric:tabular-nums}
+.rc-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-row .hosp{color:var(--text-3);font-size:12px;flex:0 0 auto;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-row .amt{font-weight:640;font-variant-numeric:tabular-nums;width:88px;text-align:right;flex:0 0 88px}
+.rc-row .amt.unknown{color:var(--text-3);font-weight:400;font-size:12px}
+
+/* ---------- Drawer / modal ---------- */
+.mask{position:fixed;inset:0;background:rgba(20,28,38,.42);z-index:300;display:none}
+.mask.on{display:block}
+.drawer{
+  position:fixed;top:0;right:0;bottom:0;width:420px;max-width:92vw;background:var(--surface);
+  z-index:310;box-shadow:-8px 0 32px rgba(16,24,40,.16);transform:translateX(100%);
+  transition:transform .22s ease;display:flex;flex-direction:column
+}
+.drawer.on{transform:translateX(0)}
+.drawer .dh{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.drawer .dh h3{margin:0;font-size:15px;font-weight:640}
+.drawer .db{padding:16px 18px;overflow-y:auto;flex:1}
+.drawer .df{padding:13px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+.field{margin-bottom:13px}
+.field label{display:block;font-size:12px;color:var(--text-2);margin-bottom:5px}
+.field label .req{color:var(--blue)}
+.field input,.field select,.field textarea{
+  width:100%;padding:8px 10px;border:1px solid var(--line-strong);border-radius:6px;
+  font-size:13px;font-family:inherit;background:var(--surface);color:var(--text)
+}
+.field input:focus,.field select:focus,.field textarea:focus{outline:0;border-color:var(--blue-2);box-shadow:0 0 0 3px var(--blue-softer)}
+.field .hint{font-size:11px;color:var(--text-3);margin-top:4px}
+.pick-list{border:1px solid var(--line);border-radius:var(--radius);max-height:250px;overflow-y:auto}
+.pick-list .pi{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid #f2f5f8;font-size:13px}
+.pick-list .pi:last-child{border-bottom:0}
+.pick-list .pi:hover{background:var(--blue-softer)}
+.pick-list .pi .info{flex:1;min-width:0}
+.pick-list .pi .info .n{font-weight:600}
+.pick-list .pi .info .m{font-size:11.5px;color:var(--text-3);margin-top:1px}
+
+/* ---------- Upload ---------- */
+.up-steps{display:grid;gap:11px}
+.up-step{
+  display:flex;gap:14px;padding:14px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius-lg);min-width:0
+}
+.up-step .no{
+  width:26px;height:26px;flex:0 0 26px;border-radius:50%;background:var(--blue-soft);color:var(--blue);
+  display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:640
+}
+.up-step .bd{min-width:0;flex:1}
+.up-step .bd h4{margin:0 0 4px;font-size:13.5px;font-weight:620}
+.up-step .bd p{margin:0;font-size:12.5px;color:var(--text-2);line-height:1.65}
+.up-step .bd code{
+  background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+  font-size:11.5px;font-family:Consolas,Monaco,monospace;color:#3d4a5c
+}
+.disabled-zone{
+  border:1.5px dashed var(--line-strong);border-radius:var(--radius-lg);padding:26px 18px;
+  text-align:center;background:var(--surface-2);color:var(--text-3);font-size:13px
+}
+.disabled-zone .big{font-size:14px;color:var(--text-2);font-weight:600;margin-bottom:5px}
+.boundary{
+  background:#fff;border:1px solid var(--line);border-left:3px solid #3b4a5e;border-radius:0 var(--radius) var(--radius) 0;
+  padding:13px 15px;font-size:12.5px;color:var(--text-2);line-height:1.75
+}
+.boundary b{color:var(--text)}
+
+/* ---------- Archive ---------- */
+.arch-row{
+  display:flex;align-items:center;gap:12px;padding:11px 13px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--radius);margin-bottom:6px;cursor:pointer;
+  transition:.12s;font-size:13px;min-width:0
+}
+.arch-row:hover{border-color:var(--blue-2);background:var(--blue-softer)}
+.arch-row .fi{
+  width:30px;height:30px;flex:0 0 30px;border-radius:6px;background:var(--blue-soft);
+  display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--blue);font-weight:640
+}
+.arch-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arch-row .mt{color:var(--text-3);font-size:11.5px;flex:0 0 auto}
+</style>
+</head>
+<body>
+
+<div class="prototype-banner">
+  <b>设计原型 · 阶段 2 审阅版</b> <span>｜ 全部数据为明确标注的虚构测试数据 ｜ 四表已建立（health_records / drugs / indicator_catalog / daily_indicator_records）｜ 服务端 RLS 私有隔离已生效</span>
+</div>
+
+<div class="app">
+  <!-- ============ 侧栏导航 ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <h1>个人健康档案</h1>
+      <p>Health Records Workbench</p>
+    </div>
+    <nav class="nav" id="nav">
+      <button data-go="overview" class="active">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+        数据概览
+      </button>
+      <button data-go="timeline">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
+        健康档案
+      </button>
+      <button data-go="upload">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 11V3M5 6l3-3 3 3M3 12v1.5h10V12"/></svg>
+        上传资料
+      </button>
+      <button data-go="archive">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h12v3H2zM3 6.5h10V13H3z"/><path d="M7 9h2"/></svg>
+        原始资料档案
+      </button>
+      <button data-go="drugs">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="5.5" width="12" height="7" rx="2"/><path d="M8 5.5v7"/></svg>
+        药品管理
+      </button>
+    </nav>
+    <div class="side-foot">阶段 2 · 设计审阅<br>数据均属虚构</div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ============ 1. 数据概览 ============ -->
+    <section class="screen on" id="s-overview">
+      <div class="page-head">
+        <h2>健康数据概览</h2>
+        <p>关注指标、资料活动与费用统计。本页仅使用结构化结果、日期、类型与金额，不从原文正文扫描指标或身份信息。</p>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><div class="k">档案数量</div><div class="v num">6<span class="u">份</span></div><div class="d">含 1 份日期待确认</div></div>
+        <div class="kpi"><div class="k">覆盖的有效日期</div><div class="v num">4<span class="u">天</span></div><div class="d">不含日期待确认记录</div></div>
+        <div class="kpi"><div class="k">关注指标</div><div class="v num">4<span class="u">项</span></div><div class="d">另有 2 项可添加关注</div></div>
+        <div class="kpi"><div class="k">已记录医疗费用</div><div class="v num">¥250.00</div><div class="d">5 张明确金额票据</div></div>
+      </div>
+
+      <div class="cols-2">
+        <!-- 左列 -->
+        <div class="grid">
+          <div class="card">
+            <div class="card-h">
+              <h3>关注指标 <span class="sub">近 12 个月</span></h3>
+              <div style="display:flex;gap:7px">
+                <button class="btn sm" onclick="openDrawer('drawer-follow')">添加关注</button>
+                <button class="btn sm" onclick="openDrawer('drawer-custom')">自定义指标</button>
+              </div>
+            </div>
+            <div class="card-b" style="padding-top:6px">
+              <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+                <div class="range-tabs" id="rangeTabs">
+                  <button data-range="3">近 3 个月</button>
+                  <button data-range="12" class="on">近 12 个月</button>
+                  <button data-range="all">全部</button>
+                </div>
+              </div>
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>指标</th><th>最新结果</th><th>最新有效日期</th><th class="r">次数</th><th style="text-align:center">小趋势</th><th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><b>空腹血糖</b><div class="muted" style="font-size:11.5px">血糖 · 数值</div></td>
+                    <td><span class="num" style="font-weight:600">5.4</span> <span class="muted">mmol/L</span></td>
+                    <td class="num muted">2023.11.18</td>
+                    <td class="r num">3</td>
+                    <td style="text-align:center"><svg class="spark" width="66" height="22" viewBox="0 0 66 22"><polyline points="4,15 24,11 44,7 62,6" fill="none" stroke="#1f5fa9" stroke-width="1.6"/><circle cx="62" cy="6" r="2.4" fill="#1f5fa9"/><circle cx="4" cy="15" r="2" fill="#8fb4dc"/><circle cx="24" cy="11" r="2" fill="#8fb4dc"/><circle cx="44" cy="7" r="2" fill="#8fb4dc"/></svg></td>
+                    <td class="r"><button class="btn sm" onclick="openIndicator('glucose_fasting')">详情</button></td>
+                  </tr>
+                  <tr>
+                    <td><b>血压</b><div class="muted" style="font-size:11.5px">血压 · 双数值</div></td>
+                    <td><span class="num" style="font-weight:600">118/76</span> <span class="muted">mmHg</span></td>
+                    <td class="num muted">2023.11.18</td>
+                    <td class="r num">2</td>
+                    <td style="text-align:center"><svg class="spark" width="66" height="22" viewBox="0 0 66 22"><polyline points="6,9 60,7" fill="none" stroke="#1f5fa9" stroke-width="1.6"/><polyline points="6,16 60,14" fill="none" stroke="#8fb4dc" stroke-width="1.6" stroke-dasharray="3 2"/><circle cx="60" cy="7" r="2.4" fill="#1f5fa9"/><circle cx="60" cy="14" r="2.4" fill="#8fb4dc"/></svg></td>
+                    <td class="r"><button class="btn sm" onclick="openIndicator('bp')">详情</button></td>
+                  </tr>
+                  <tr>
+                    <td><b>血脂</b><div class="muted" style="font-size:11.5px">血脂 · 指标组（4 分项）</div></td>
+                    <td><span class="num" style="font-weight:600">4 项</span> <span class="muted">mmol/L</span></td>
+                    <td class="num muted">2023.11.18</td>
+                    <td class="r num">1 <span class="muted" style="font-size:11px">次</span></td>
+                    <td style="text-align:center"><svg class="spark" width="66" height="22" viewBox="0 0 66 22"><polyline points="8,12 32,10 56,9" fill="none" stroke="#1f5fa9" stroke-width="1.6"/><polyline points="8,17 32,15 56,14" fill="none" stroke="#8fb4dc" stroke-width="1.4" stroke-dasharray="3 2"/></svg></td>
+                    <td class="r"><button class="btn sm" onclick="openIndicator('lipid')">详情</button></td>
+                  </tr>
+                  <tr>
+                    <td><b>血尿酸</b><div class="muted" style="font-size:11.5px">尿酸 · 数值</div></td>
+                    <td><span class="num" style="font-weight:600">352</span> <span class="muted">μmol/L</span></td>
+                    <td class="num muted">2023.11.18</td>
+                    <td class="r num">1</td>
+                    <td style="text-align:center"><span class="muted" style="font-size:11px">数据不足</span></td>
+                    <td class="r"><button class="btn sm" onclick="openIndicator('ua')">详情</button></td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="note">
+                「次数」口径：普通数值指标显示结果记录数；血脂显示按日期去重的检查次数（4 个分项不等于 4 次检查）。
+                时间范围仅作用于本表，不影响下方资料活动与费用统计。
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h">
+              <h3>已记录医疗费用</h3>
+              <button class="btn sm" onclick="go('receipts')">查看全部票据来源</button>
+            </div>
+            <div class="card-b">
+              <div style="display:flex;gap:30px;flex-wrap:wrap;margin-bottom:16px">
+                <div><div class="muted" style="font-size:11.5px">明确金额合计</div><div class="num" style="font-size:22px;font-weight:650;letter-spacing:-.4px">¥250.00</div></div>
+                <div><div class="muted" style="font-size:11.5px">明确金额票据</div><div class="num" style="font-size:22px;font-weight:650;letter-spacing:-.4px">5 <span style="font-size:12px;font-weight:400;color:#8a94a3">张</span></div></div>
+                <div><div class="muted" style="font-size:11.5px">医保支付 / 个人支付</div><div class="num" style="font-size:22px;font-weight:650;letter-spacing:-.4px">未提供</div></div>
+              </div>
+              <div class="bars">
+                <div class="bar" title="2022年：¥150.00，2 张"><div class="amt num">150</div><div class="fill" style="height:66px"></div><div class="lab">2022</div></div>
+                <div class="bar" title="2023年：¥80.00，1 张"><div class="amt num">80</div><div class="fill" style="height:35px"></div><div class="lab">2023</div></div>
+                <div class="bar" title="无日期：¥20.00，1 张（不计入年度图）"><div class="amt num muted">—</div><div class="fill" style="height:2px;background:#cbd3df"></div><div class="lab" style="color:#8a94a3">无日期</div></div>
+              </div>
+              <div class="note">
+                有日期票据年度合计 ¥230.00（2 张 2022 年 + 1 张 2023 年）；与总额差额 ¥20.00 来自无日期票据，仍计入总额与来源列表。
+                另有 1 张金额未知未计入，1 张明确 ¥0.00 按其有效日期参与张数。医保 / 个人支付未提供时显示「未提供」，不显示 ¥0.00。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右列（侧栏，允许收缩） -->
+        <div class="grid" style="min-width:0">
+          <div class="card">
+            <div class="card-h"><h3>跨年度资料活动</h3><span class="sub">点击年份展开月份</span></div>
+            <div class="card-b" style="padding-top:12px">
+              <div class="year-grp open">
+                <div class="year-h" onclick="this.parentNode.classList.toggle('open')">
+                  <div class="l"><span class="caret"></span><b>2023 年</b></div>
+                  <span class="muted num" style="font-size:12px">4 份资料</span>
+                </div>
+                <div class="months">
+                  <div class="mrow"><span class="mn">11 月</span><span class="mbar" style="width:88%"></span><span class="mc">3 份</span></div>
+                  <div class="mrow"><span class="mn">06 月</span><span class="mbar" style="width:30%"></span><span class="mc">1 份</span></div>
+                </div>
+              </div>
+              <div class="year-grp">
+                <div class="year-h" onclick="this.parentNode.classList.toggle('open')">
+                  <div class="l"><span class="caret"></span><b>2022 年</b></div>
+                  <span class="muted num" style="font-size:12px">2 份资料</span>
+                </div>
+                <div class="months">
+                  <div class="mrow"><span class="mn">05 月</span><span class="mbar" style="width:56%"></span><span class="mc">2 份</span></div>
+                </div>
+              </div>
+              <div class="mrow" style="margin-top:8px;padding-top:9px;border-top:1px solid var(--line)">
+                <span class="mn" style="width:auto;flex:0 0 auto">日期待确认</span>
+                <span class="mc" style="margin-left:auto">1 份</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><h3>资料类型分布</h3><span class="sub">六类</span></div>
+            <div class="card-b">
+              <div class="dist">
+                <div class="row"><span class="nm">检验报告</span><span class="track"><span class="fillb" style="width:66%"></span></span><span class="ct num">2</span></div>
+                <div class="row"><span class="nm">检查报告</span><span class="track"><span class="fillb" style="width:33%"></span></span><span class="ct num">1</span></div>
+                <div class="row"><span class="nm">医疗发票 / 收费单</span><span class="track"><span class="fillb" style="width:33%"></span></span><span class="ct num">1</span></div>
+                <div class="row"><span class="nm">处方 / 用药单</span><span class="track"><span class="fillb" style="width:33%"></span></span><span class="ct num">1</span></div>
+                <div class="row"><span class="nm">挂号单 / 就诊单</span><span class="track"><span class="fillb" style="width:33%"></span></span><span class="ct num">1</span></div>
+                <div class="row"><span class="nm">其他医疗资料</span><span class="track"><span class="fillb" style="width:0%"></span></span><span class="ct num">0</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><h3>快速入口</h3></div>
+            <div class="card-b" style="display:flex;flex-direction:column;gap:8px">
+              <button class="btn" style="justify-content:flex-start;text-align:left" onclick="openDrawer('drawer-daily')">录入日常结果</button>
+              <button class="btn" style="justify-content:flex-start;text-align:left" onclick="openDrawer('drawer-follow')">添加关注指标</button>
+              <button class="btn" style="justify-content:flex-start;text-align:left" onclick="openDrawer('drawer-custom')">新建自定义指标</button>
+              <button class="btn" style="justify-content:flex-start;text-align:left" onclick="go('upload')">提交新资料</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 2. 健康档案时间线 ============ -->
+    <section class="screen" id="s-timeline">
+      <div class="page-head">
+        <h2>健康档案</h2>
+        <p>按业务日期倒序，年 → 月 → 日分层。同一日期合并为一个日期组，组下列出多份不同医疗资料。</p>
+      </div>
+
+      <div class="stats-strip">
+        <div class="s"><div class="k">资料总数</div><div class="v num">6 份</div></div>
+        <div class="s"><div class="k">医院数量</div><div class="v num">2 家</div></div>
+        <div class="s"><div class="k">最近一次就诊 / 资料日期</div><div class="v num">2023.11.18</div></div>
+        <div class="s" style="border-left:1px solid var(--line);padding-left:22px">
+          <div class="k">关注指标轻摘要</div>
+          <div class="v" style="font-size:13px;font-weight:400;color:#55606f">空腹血糖 5.4 mmol/L · 血压 118/76 mmHg</div>
+        </div>
+      </div>
+
+      <div class="filters">
+        <input type="search" placeholder="搜索标题、医院、科室、摘要…">
+        <select><option>全部类型</option><option>挂号单 / 就诊单</option><option>检验报告</option><option>检查报告</option><option>处方 / 用药单</option><option>医疗发票 / 收费单</option><option>其他医疗资料</option></select>
+        <select><option>全部医院</option><option>示例市第一人民医院</option><option>示例区社区卫生服务中心</option></select>
+        <button class="btn">清空筛选</button>
+        <span class="muted" style="font-size:12px;margin-left:auto">筛选真实作用于全部已加载记录</span>
+      </div>
+
+      <div class="year-block">
+        <div class="year-title">2023 年 <span class="ln"></span> <span class="muted" style="font-size:12px;font-weight:400">4 份资料</span></div>
+
+        <div class="month-title">11 月 <span class="cnt">· 3 份资料 · 1 个日期组</span></div>
+        <div class="date-grp">
+          <div class="date-head"><span class="dd num">2023-11-18</span><span class="tag">1 个日期组 · 3 份资料</span></div>
+          <div class="doc-card" onclick="openDoc('lab')">
+            <div class="t"><span class="tag">检验报告</span><span class="tt">示例市第一人民医院 生化检验报告</span></div>
+            <div class="meta"><span>示例市第一人民医院</span><span>内科门诊</span><span>已确认日期</span><span>2 页 / 2 图</span></div>
+            <ul>
+              <li>空腹血糖 5.4 mmol/L，参考范围 3.9–6.1 mmol/L</li>
+              <li>血尿酸 352 μmol/L，参考范围 208–428 μmol/L</li>
+              <li>总胆固醇 4.62 mmol/L，参考范围 2.9–5.2 mmol/L</li>
+            </ul>
+          </div>
+          <div class="doc-card" onclick="openDoc('exam')">
+            <div class="t"><span class="tag">检查报告</span><span class="tt">示例市第一人民医院 胸部 CT 检查报告</span></div>
+            <div class="meta"><span>示例市第一人民医院</span><span>影像科</span><span>已确认日期</span><span>1 页 / 1 图</span></div>
+            <ul>
+              <li>检查所见：双肺纹理清晰，未见明确实质性病变</li>
+              <li>报告意见：胸部 CT 未见明显异常（原文照录）</li>
+            </ul>
+          </div>
+          <div class="doc-card" onclick="openDoc('invoice')">
+            <div class="t"><span class="tag">医疗发票 / 收费单</span><span class="tt">示例市第一人民医院 门诊收费单</span></div>
+            <div class="meta"><span>示例市第一人民医院</span><span>收费日期 2023-11-18</span><span>已确认日期</span><span>¥80.00</span></div>
+            <ul>
+              <li>总金额 80.00 元，含检验费 2 项</li>
+              <li>医保支付 / 个人支付：原文未提供</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="month-title">06 月 <span class="cnt">· 1 份资料 · 1 个日期组</span></div>
+        <div class="date-grp">
+          <div class="date-head"><span class="dd num">2023-06-09</span><span class="tag outline">1 个日期组 · 1 份资料</span></div>
+          <div class="doc-card" onclick="openDoc('rx')">
+            <div class="t"><span class="tag">处方 / 用药单</span><span class="tt">门诊处方 阿托伐他汀钙片</span></div>
+            <div class="meta"><span>示例市第一人民医院</span><span>心血管内科</span><span>开方日期 2023-06-09</span></div>
+            <ul>
+              <li>阿托伐他汀钙片 20mg，每日 1 次，口服</li>
+              <li>原文用法照录，个人实际用药计划以用户确认为准</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="more-month" style="margin-top:14px">更早内容按月份折叠 · 点击展开 2023 年其他月份</div>
+      </div>
+
+      <div class="year-block">
+        <div class="year-title">2022 年 <span class="ln"></span> <span class="muted" style="font-size:12px;font-weight:400">2 份资料</span></div>
+        <div class="month-title">05 月 <span class="cnt">· 2 份资料 · 1 个日期组</span></div>
+        <div class="date-grp">
+          <div class="date-head"><span class="dd num">2022-05-12</span><span class="tag outline">1 个日期组 · 2 份资料</span></div>
+          <div class="doc-card" onclick="openDoc('lab2022')">
+            <div class="t"><span class="tag">检验报告</span><span class="tt">示例区社区卫生服务中心 血常规 / 生化检验</span></div>
+            <div class="meta"><span>示例区社区卫生服务中心</span><span>全科</span><span>已确认日期</span><span>3 页 / 3 图</span></div>
+            <ul>
+              <li>空腹血糖 6.1 mmol/L，参考范围 3.9–6.1 mmol/L，原文标记 ↑</li>
+              <li>三页跨页体检资料，按一个逻辑档案归档</li>
+            </ul>
+          </div>
+          <div class="doc-card" onclick="openDoc('invoice2022a')">
+            <div class="t"><span class="tag">医疗发票 / 收费单</span><span class="tt">社区卫生服务中心 门诊收费单</span></div>
+            <div class="meta"><span>示例区社区卫生服务中心</span><span>收费日期 2022-05-12</span><span>¥100.00</span></div>
+            <ul><li>总金额 100.00 元</li></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="month-title" style="margin-top:20px">日期待确认 <span class="cnt">· 1 份资料 · 不参与按日期计算的趋势</span></div>
+      <div class="date-grp" style="border-left-color:#e2e6ed">
+        <div class="date-head"><span class="dd" style="color:#8a94a3">日期待确认</span><span class="tag gray">可查看 · 不计入趋势</span></div>
+        <div class="doc-card" onclick="openDoc('unknown')">
+          <div class="t"><span class="tag">其他医疗资料</span><span class="tt">疫苗接种记录（日期待确认）</span></div>
+          <div class="meta"><span>医院未提供</span><span>原文未印明确日期</span></div>
+          <ul><li>原文未提供可确认的业务日期，未使用上传日期或文件修改日期代替</li></ul>
+        </div>
+      </div>
+
+      <div class="empty" style="margin-top:18px;text-align:left;padding:16px 18px">
+        <b style="color:#55606f">空态示例：</b>四表为空时不显示任何虚构报告、药品、金额或趋势，默认进入数据概览并提示「暂无档案，请先提交资料」。此处为虚构数据演示态。
+      </div>
+    </section>
+
+    <!-- ============ 3. 上传资料 ============ -->
+    <section class="screen" id="s-upload">
+      <div class="page-head">
+        <h2>上传资料</h2>
+        <p>医疗资料经解析、核对、脱敏后归档。以下为当前环境下的真实处理路径与边界说明。</p>
+      </div>
+
+      <div class="cols-2" style="grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)">
+        <div class="grid">
+          <div class="card">
+            <div class="card-h"><h3>实际处理路径</h3><span class="sub">4 步</span></div>
+            <div class="card-b">
+              <div class="up-steps">
+                <div class="up-step">
+                  <div class="no">1</div>
+                  <div class="bd">
+                    <h4>在对话中提交原始文件</h4>
+                    <p>支持单张、多张、多文件输入，每份文件有独立处理状态与错误反馈。可把微信 PC 端收到的文件先保存到本地，再拖入对话提交。</p>
+                  </div>
+                </div>
+                <div class="up-step">
+                  <div class="no">2</div>
+                  <div class="bd">
+                    <h4>解析与结构化</h4>
+                    <p>JPG / PNG / PDF / BMP / TIFF / WebP 走解析链路，产出可归档的正文与结构化字段。Office 等格式能否支持以当时实际能力为准。</p>
+                  </div>
+                </div>
+                <div class="up-step">
+                  <div class="no">3</div>
+                  <div class="bd">
+                    <h4>核对、分类与脱敏</h4>
+                    <p>六类归档、日期规则校验、字段核对。被遮挡或打码的身份信息不还原、不猜测、不补录；无法确认的字段保持「未提供 / 待确认」。</p>
+                  </div>
+                </div>
+                <div class="up-step">
+                  <div class="no">4</div>
+                  <div class="bd">
+                    <h4>写入数据库并刷新工作台</h4>
+                    <p>写入后回读校验记录数量、字段、附件数与来源关系。全部完成后刷新本页即可看到新档案。</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><h3>网页上传入口</h3><span class="sub">当前状态</span></div>
+            <div class="card-b">
+              <div class="disabled-zone">
+                <div class="big">本入口当前不可用</div>
+                网页无法直接调用本机的文件解析能力。请按上方路径在对话中提交文件。<br>
+                此入口不会显示假进度或假成功。
+              </div>
+              <div class="note" style="margin-top:12px">
+                说明：只有当确认存在正式可用的服务端解析接口后，才会接入「网页上传 → 服务端触发解析」。
+                在此之前不把它包装成网页自动调用，页面也不展示任何内部接口细节。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="card">
+            <div class="card-h"><h3>六类资料</h3></div>
+            <div class="card-b" style="display:flex;flex-direction:column;gap:7px;font-size:13px">
+              <div>1 · 挂号单 / 就诊单</div>
+              <div>2 · 检验报告</div>
+              <div>3 · 检查报告</div>
+              <div>4 · 处方 / 用药单</div>
+              <div>5 · 医疗发票 / 收费单</div>
+              <div>6 · 其他医疗资料</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><h3>提交时请说明</h3></div>
+            <div class="card-b" style="font-size:12.5px;color:#55606f;line-height:1.8">
+              · 多张图片是否属于<b>同一份报告</b>或<b>同一个药品</b>（决定合并为一个逻辑档案还是分别建档）<br>
+              · 同一天的多份不同资料会汇总在时间线同一天，但<b>不合并</b>为一份文档<br>
+              · 若资料混有不同报告而无法判断，将先询问而不是按医院或日期擅自合并
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><h3>隐私边界</h3></div>
+            <div class="card-b">
+              <div class="boundary">
+                原始附件与解析正文按<b>敏感资料</b>管理，默认<b>仅本人可见</b>。<br>
+                被打码、遮挡、裁切的姓名 / 证件 / 条码 / 票据号 / 卡号等，<b>不还原、不猜测、不补录</b>。<br>
+                用于统计与普通展示的内容不携带无关身份与交易标识。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 4. 原始资料档案 ============ -->
+    <section class="screen" id="s-archive">
+      <div class="page-head">
+        <h2>原始资料档案</h2>
+        <p>集中展示来源文件与档案条目，可检索并进入对应详情。本页不改变健康档案的日期归组含义。</p>
+      </div>
+
+      <div class="filters">
+        <input type="search" placeholder="搜索原始文件名或档案标题…">
+        <select><option>全部类型</option><option>检验报告</option><option>检查报告</option><option>医疗发票 / 收费单</option><option>处方 / 用药单</option></select>
+        <span class="muted" style="font-size:12px;margin-left:auto">共 8 个来源文件 · 6 份档案 · 2 份档案含多页</span>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3>来源文件</h3><span class="sub">按内容更新时间倒序</span></div>
+        <div class="card-b" style="padding-top:12px">
+          <div class="arch-row" onclick="openDoc('lab')">
+            <div class="fi">JPG</div>
+            <div class="nm">检验报告_生化_第1页.jpg</div>
+            <div class="mt">2023-11-18 · 检验报告 · 248 KB</div>
+            <span class="tag">已归档</span>
+          </div>
+          <div class="arch-row" onclick="openDoc('lab')">
+            <div class="fi">JPG</div>
+            <div class="nm">检验报告_生化_第2页.jpg</div>
+            <div class="mt">2023-11-18 · 同一逻辑档案第 2 页 · 231 KB</div>
+            <span class="tag">已归档</span>
+          </div>
+          <div class="arch-row" onclick="openDoc('exam')">
+            <div class="fi">PDF</div>
+            <div class="nm">胸部CT检查报告.pdf</div>
+            <div class="mt">2023-11-18 · 检查报告 · 1.2 MB</div>
+            <span class="tag">已归档</span>
+          </div>
+          <div class="arch-row" onclick="openDoc('invoice')">
+            <div class="fi">JPG</div>
+            <div class="nm">门诊收费单_20231118.jpg</div>
+            <div class="mt">2023-11-18 · 医疗发票 / 收费单 · 196 KB</div>
+            <span class="tag">已归档</span>
+          </div>
+          <div class="arch-row" onclick="openDoc('rx')">
+            <div class="fi">JPG</div>
+            <div class="nm">门诊处方_阿托伐他汀.jpg</div>
+            <div class="mt">2023-06-09 · 处方 / 用药单 · 174 KB</div>
+            <span class="tag">已归档</span>
+          </div>
+          <div class="arch-row" onclick="openDoc('unknown')">
+            <div class="fi">JPG</div>
+            <div class="nm">疫苗接种记录.jpg</div>
+            <div class="mt">日期待确认 · 其他医疗资料 · 132 KB</div>
+            <span class="tag gray">待核对</span>
+          </div>
+          <div class="arch-row" style="cursor:default">
+            <div class="fi" style="background:#eef1f5;color:#8a94a3">JPG</div>
+            <div class="nm" style="color:#8a94a3">重复上传_检验报告_生化_第1页.jpg</div>
+            <div class="mt">文件哈希与已归档档案一致 · 已按幂等规则跳过，未新增重复记录</div>
+            <span class="tag outline">已跳过</span>
+          </div>
+          <div class="arch-row" style="cursor:default">
+            <div class="fi" style="background:#eef1f5;color:#8a94a3">JPG</div>
+            <div class="nm" style="color:#8a94a3">模糊扫描_无法识别.jpg</div>
+            <div class="mt">解析失败 · 未写入数据库 · 可重新提交更清晰的文件</div>
+            <span class="tag outline">解析失败</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        附件对象至少具有：文件名、存储标识、授权可访问 URL、MIME 类型；能取得时保存文件大小、宽高、缩略图 URL、页序。
+        文件不存在或访问失败时显示准确状态与可用操作，不显示无限加载或伪造缩略图。
+      </div>
+    </section>
+
+    <!-- ============ 5. 药品管理 ============ -->
+    <section class="screen" id="s-drugs">
+      <div class="page-head">
+        <h2>药品管理</h2>
+        <p>药品资料解析、同药多图归档、当前用药 / 备用 / 历史用药与状态事件记录。</p>
+      </div>
+
+      <div class="today-bar">
+        <div class="h">
+          <span class="tag solid">今日在用</span>
+          来自原处方明确或用户确认的个人计划
+        </div>
+        <div class="list">
+          <span class="pill">阿托伐他汀钙片 20mg · 每晚 1 次</span>
+          <span class="pill">二甲双胍片 0.5g · 每日 2 次</span>
+        </div>
+        <div class="note" style="margin-top:8px">
+          仅展示已有个人计划的项目；没有计划时显示真实空态。不自动依据药盒安排时间，不做服药推荐、推送提醒、打卡或库存自动扣减。
+        </div>
+      </div>
+
+      <div class="drug-groups">
+        <!-- 当前用药 -->
+        <div>
+          <div class="group-head"><h3>当前用药</h3><span class="ct">2 种</span><span class="ln"></span></div>
+          <div class="drug-grid">
+            <div class="drug-card" onclick="openDrug('atorva')">
+              <div class="top">
+                <div style="min-width:0">
+                  <div class="nm">阿托伐他汀钙片</div>
+                  <div class="gen">通用名：阿托伐他汀钙</div>
+                </div>
+                <span class="tag solid">正在服用</span>
+              </div>
+              <div class="rows">
+                <div class="rr"><span class="lab">规格剂型</span><span>20mg · 片剂</span></div>
+                <div class="rr"><span class="lab">个人用量</span><span>每次 1 片 · 每晚 1 次 · 口服</span></div>
+                <div class="rr"><span class="lab">开始日期</span><span class="num">2023-06-11（用户确认）</span></div>
+                <div class="rr"><span class="lab">有效期</span><span class="exp exp-soon">2026-03 · 临期提示</span></div>
+              </div>
+              <div class="acts" onclick="event.stopPropagation()">
+                <button class="btn sm">暂停用药</button>
+                <button class="btn sm">停止用药</button>
+                <button class="btn sm ghost" onclick="openDrug('atorva')">查看详情</button>
+              </div>
+            </div>
+
+            <div class="drug-card" onclick="openDrug('metformin')">
+              <div class="top">
+                <div style="min-width:0">
+                  <div class="nm">二甲双胍片</div>
+                  <div class="gen">通用名：盐酸二甲双胍</div>
+                </div>
+                <span class="tag solid">正在服用</span>
+              </div>
+              <div class="rows">
+                <div class="rr"><span class="lab">规格剂型</span><span>0.5g · 片剂</span></div>
+                <div class="rr"><span class="lab">个人用量</span><span>每次 1 片 · 每日 2 次 · 口服</span></div>
+                <div class="rr"><span class="lab">开始日期</span><span class="num">2023-11-19（未来开始）</span></div>
+                <div class="rr"><span class="lab">有效期</span><span class="exp exp-near">2025-08</span></div>
+              </div>
+              <div class="acts" onclick="event.stopPropagation()">
+                <button class="btn sm">暂停用药</button>
+                <button class="btn sm">停止用药</button>
+                <button class="btn sm ghost" onclick="openDrug('metformin')">查看详情</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 备用 / 药箱 -->
+        <div>
+          <div class="group-head"><h3>备用 / 药箱</h3><span class="ct">2 种</span><span class="ln"></span></div>
+          <div class="drug-grid">
+            <div class="drug-card" onclick="openDrug('amoxicillin')">
+              <div class="top">
+                <div style="min-width:0">
+                  <div class="nm">阿莫西林胶囊</div>
+                  <div class="gen">通用名：阿莫西林</div>
+                </div>
+                <span class="tag gray">备用药</span>
+              </div>
+              <div class="rows">
+                <div class="rr"><span class="lab">规格剂型</span><span>0.25g · 胶囊</span></div>
+                <div class="rr"><span class="lab">原文用法</span><span>原文说明照录，未转为个人计划</span></div>
+                <div class="rr"><span class="lab">数量</span><span>24 粒（原文明确）</span></div>
+                <div class="rr"><span class="lab">有效期</span><span class="exp exp-past">2024-03 · 已过期</span></div>
+              </div>
+              <div class="acts" onclick="event.stopPropagation()">
+                <button class="btn sm" disabled style="opacity:.5;cursor:not-allowed" title="过期药品不得开始用药">开始用药（已禁用）</button>
+                <button class="btn sm ghost" onclick="openDrug('amoxicillin')">查看详情</button>
+              </div>
+            </div>
+
+            <div class="drug-card" onclick="openDrug('vitd')">
+              <div class="top">
+                <div style="min-width:0">
+                  <div class="nm">维生素 D 滴剂</div>
+                  <div class="gen">通用名：维生素 D3</div>
+                </div>
+                <span class="tag gray">备用药</span>
+              </div>
+              <div class="rows">
+                <div class="rr"><span class="lab">规格剂型</span><span>400IU · 滴剂</span></div>
+                <div class="rr"><span class="lab">数量</span><span class="muted">未提供</span></div>
+                <div class="rr"><span class="lab">有效期</span><span class="exp exp-unknown">有效期待确认（原文无明确日期）</span></div>
+              </div>
+              <div class="acts" onclick="event.stopPropagation()">
+                <button class="btn sm primary">开始用药</button>
+                <button class="btn sm ghost" onclick="openDrug('vitd')">查看详情</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 历史用药 -->
+        <div>
+          <div class="group-head"><h3>历史用药</h3><span class="ct">1 种</span><span class="ln"></span></div>
+          <div class="drug-grid">
+            <div class="drug-card" onclick="openDrug('cefixime')">
+              <div class="top">
+                <div style="min-width:0">
+                  <div class="nm">头孢克肟分散片</div>
+                  <div class="gen">通用名：头孢克肟</div>
+                </div>
+                <span class="tag outline">已停用</span>
+              </div>
+              <div class="rows">
+                <div class="rr"><span class="lab">规格剂型</span><span>0.1g · 分散片</span></div>
+                <div class="rr"><span class="lab">状态事件</span><span>3 条 · 开始 → 暂停 → 再次开始 → 停止</span></div>
+                <div class="rr"><span class="lab">停止日期</span><span class="num">2023-03-02（用户录入）</span></div>
+                <div class="rr"><span class="lab">有效期</span><span class="exp exp-past">2023-12 · 已过期</span></div>
+              </div>
+              <div class="acts" onclick="event.stopPropagation()">
+                <button class="btn sm">再次开始用药</button>
+                <button class="btn sm ghost" onclick="openDrug('cefixime')">查看详情与历史</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        有效期仅依原文明确日期计算，无日期显示「有效期待确认」。状态区分使用蓝色深浅、灰阶、描边与图标，不引入红黄绿。
+        过期药品不得开始用药，但保留资料与必要的停止记录操作。状态变更失败时保持原状态并提示失败，未保存成功不显示成功。
+      </div>
+    </section>
+
+    <!-- ============ 6. 指标详情（独立滚动层） ============ -->
+    <section class="screen" id="s-indicator">
+      <div class="page-head">
+        <h2>指标详情</h2>
+        <p>此处为原型内嵌预览；正式实现中该页为固定定位的独立滚动容器，首次打开从容器顶部开始，底层页面滚动不动。</p>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>空腹血糖 · 趋势</h3><span class="sub">示意 · 正式实现为独立滚动层</span></div>
+        <div class="card-b">
+          <div class="chart-legend">
+            <span class="lg"><span class="sw"></span>空腹血糖（mmol/L）</span>
+            <span class="lg"><span class="sw dash"></span>单位归一化后展示，原值括号保留</span>
+          </div>
+          <svg viewBox="0 0 680 180" style="width:100%;height:auto">
+            <line x1="52" y1="20" x2="52" y2="142" stroke="#e2e6ed"/>
+            <line x1="52" y1="142" x2="648" y2="142" stroke="#cbd3df"/>
+            <text x="46" y="26" text-anchor="end" font-size="10" fill="#8a94a3">7.0</text>
+            <text x="46" y="66" text-anchor="end" font-size="10" fill="#8a94a3">6.0</text>
+            <text x="46" y="106" text-anchor="end" font-size="10" fill="#8a94a3">5.0</text>
+            <text x="46" y="146" text-anchor="end" font-size="10" fill="#8a94a3">4.0</text>
+            <line x1="52" y1="62" x2="648" y2="62" stroke="#eef1f5"/>
+            <line x1="52" y1="102" x2="648" y2="102" stroke="#eef1f5"/>
+            <polyline points="140,58 394,66 582,86" fill="none" stroke="#1f5fa9" stroke-width="2"/>
+            <circle cx="140" cy="58" r="4" fill="#fff" stroke="#1f5fa9" stroke-width="2"/>
+            <circle cx="394" cy="66" r="4" fill="#fff" stroke="#1f5fa9" stroke-width="2"/>
+            <circle cx="582" cy="86" r="4.5" fill="#1f5fa9"/>
+            <text x="140" y="162" text-anchor="middle" font-size="10.5" fill="#55606f">2022.05</text>
+            <text x="394" y="162" text-anchor="middle" font-size="10.5" fill="#55606f">2023.06</text>
+            <text x="582" y="162" text-anchor="middle" font-size="10.5" fill="#55606f">2023.11</text>
+            <text x="140" y="46" text-anchor="middle" font-size="10.5" fill="#1f5fa9">6.1 ↑</text>
+            <text x="394" y="54" text-anchor="middle" font-size="10.5" fill="#1f5fa9">5.8</text>
+            <text x="582" y="74" text-anchor="middle" font-size="10.5" fill="#1f5fa9">5.4</text>
+          </svg>
+          <div class="chart-tip">
+            横轴为 <b>YYYY.MM</b> 格式，避免跨年混淆。悬停点可查看完整日期、结果、单位、测量条件与来源。
+            ↑ 为原报告明确印出的标记，系统不依据数值与参考范围自行生成异常 / 偏高 / 偏低标签。
+          </div>
+          <div class="point-list">
+            <div class="pr">
+              <span class="dt num">2023-11-18</span>
+              <span class="va num">5.4 mmol/L</span>
+              <span class="orig">原参考范围 3.9–6.1 mmol/L</span>
+              <span class="src-chip report">报告引用</span>
+              <span class="muted" style="margin-left:auto;font-size:11.5px">示例市第一人民医院 · 生化检验报告</span>
+            </div>
+            <div class="pr">
+              <span class="dt num">2023-06-09</span>
+              <span class="va num">5.8 mmol/L</span>
+              <span class="orig">原参考范围 3.9–6.1 mmol/L</span>
+              <span class="src-chip">手动录入</span>
+              <span class="muted" style="margin-left:auto;font-size:11.5px">测量条件：空腹</span>
+            </div>
+            <div class="pr">
+              <span class="dt num">2022-05-12</span>
+              <span class="va num">6.1 mmol/L</span>
+              <span class="orig">原参考范围 3.9–6.1 mmol/L · 原标记 ↑</span>
+              <span class="src-chip report">报告引用</span>
+              <span class="muted" style="margin-left:auto;font-size:11.5px">示例区社区卫生服务中心</span>
+            </div>
+            <div class="pr" style="background:#fafbfc">
+              <span class="dt num" style="color:#8a94a3">日期待确认</span>
+              <span class="va num">1+</span>
+              <span class="orig">定性结果保留在原历史，不参与连线</span>
+              <span class="src-chip">手动录入</span>
+              <span class="muted" style="margin-left:auto;font-size:11.5px">不转为精确数值</span>
+            </div>
+          </div>
+          <div class="note">
+            报告记录与日常记录可汇合展示但保留来源区分；不因关注或刷新重复生成派生结果。
+            少于两个可比较点时显示不足提示，不画虚假的线。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 7. 票据来源（独立滚动层） ============ -->
+    <section class="screen" id="s-receipts">
+      <div class="page-head">
+        <h2>全部票据来源</h2>
+        <p>按年份倒序分组，日期待确认单列。每组显示张数与金额，每张可进入该票据的左侧原图与右侧收费明细。</p>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-b" style="display:flex;gap:30px;flex-wrap:wrap">
+          <div><div class="muted" style="font-size:11.5px">明确金额合计</div><div class="num" style="font-size:20px;font-weight:650">¥250.00</div></div>
+          <div><div class="muted" style="font-size:11.5px">明确金额票据</div><div class="num" style="font-size:20px;font-weight:650">5 张</div></div>
+          <div><div class="muted" style="font-size:11.5px">金额未知未计入</div><div class="num" style="font-size:20px;font-weight:650">1 张</div></div>
+          <div><div class="muted" style="font-size:11.5px">明确零金额</div><div class="num" style="font-size:20px;font-weight:650">1 张</div></div>
+        </div>
+      </div>
+
+      <div class="receipt-grp">
+        <div class="rh"><div class="rl">2023 年</div><div class="rr num">1 张 · ¥80.00</div></div>
+        <div class="rc-row" onclick="openDoc('invoice')">
+          <span class="d num">2023-11-18</span>
+          <span class="nm">示例市第一人民医院 门诊收费单</span>
+          <span class="hosp">示例市第一人民医院 · 内科门诊</span>
+          <span class="amt num">¥80.00</span>
+        </div>
+      </div>
+
+      <div class="receipt-grp">
+        <div class="rh"><div class="rl">2022 年</div><div class="rr num">2 张 · ¥150.00</div></div>
+        <div class="rc-row" onclick="openDoc('invoice2022a')">
+          <span class="d num">2022-05-12</span>
+          <span class="nm">社区卫生服务中心 门诊收费单</span>
+          <span class="hosp">示例区社区卫生服务中心 · 全科</span>
+          <span class="amt num">¥100.00</span>
+        </div>
+        <div class="rc-row" onclick="openDoc('invoice2022b')">
+          <span class="d num">2022-05-12</span>
+          <span class="nm">社区卫生服务中心 检验收费单</span>
+          <span class="hosp">示例区社区卫生服务中心 · 全科</span>
+          <span class="amt num">¥50.00</span>
+        </div>
+      </div>
+
+      <div class="receipt-grp">
+        <div class="rh"><div class="rl">日期待确认</div><div class="rr num">1 张 · ¥20.00（不计入年度图）</div></div>
+        <div class="rc-row" onclick="openDoc('invoiceUnknown')">
+          <span class="d" style="color:#8a94a3">日期待确认</span>
+          <span class="nm">门诊收费单（原文日期不可确认）</span>
+          <span class="hosp">医院未提供</span>
+          <span class="amt num">¥20.00</span>
+        </div>
+      </div>
+
+      <div class="receipt-grp">
+        <div class="rh"><div class="rl">金额未知 · 未计入合计</div><div class="rr num">1 张 · 金额不可确认</div></div>
+        <div class="rc-row" onclick="openDoc('invoiceNoAmt')">
+          <span class="d num">2022-05-12</span>
+          <span class="nm">门诊收费单（原文明示金额不可确认）</span>
+          <span class="hosp">示例区社区卫生服务中心 · 全科</span>
+          <span class="amt unknown">金额未知</span>
+        </div>
+      </div>
+
+      <div class="receipt-grp">
+        <div class="rh"><div class="rl">明确零金额</div><div class="rr num">1 张 · ¥0.00（按有效日期参与张数）</div></div>
+        <div class="rc-row" onclick="openDoc('invoiceZero')">
+          <span class="d num">2023-11-18</span>
+          <span class="nm">门诊收费单（合计 0.00 元，原文明确）</span>
+          <span class="hosp">示例市第一人民医院 · 内科门诊</span>
+          <span class="amt num">¥0.00</span>
+        </div>
+      </div>
+
+      <div class="note">
+        「查看全部票据来源」进入本列表，不默认打开第一张。查询完整分页，直到没有下一页。
+        本模块是已录入票据统计，不是用户全部医疗开销，也不是支付、报销或保险结算系统。
+      </div>
+
+      <div class="empty" style="margin-top:14px;text-align:left;padding:16px 18px">
+        <b style="color:#55606f">虚构验收测试集：</b>2022 年 100 元 + 50 元；2023 年 80 元；另有无日期 20 元、金额未知 1 张、明确零元 1 张。
+        明确金额总额 250 元 / 5 张；有日期年度合计 230 元；未知金额 1 张不计零；零元票据按其有效日期参与对应年度张数。
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ================= 详情：医疗文档（固定层 + 独立滚动） ================= -->
+<div class="detail-layer" id="docLayer">
+  <div class="detail-top">
+    <div class="inner">
+      <button class="bk" onclick="closeDoc()">← <span id="docBackLabel">返回健康档案</span></button>
+      <span class="ttl" id="docTitle">检验报告</span>
+      <span class="tag" id="docTypeTag" style="margin-left:auto">检验报告</span>
+    </div>
+  </div>
+  <div class="detail-body">
+    <div class="split">
+      <!-- 左：原始文件（桌面始终优先展示） -->
+      <div>
+        <div class="viewer">
+          <div class="stage">
+            <div class="paper">
+              <div class="ph"></div>
+              <div class="pl" style="width:92%"></div>
+              <div class="pl" style="width:84%"></div>
+              <div class="pl" style="width:96%"></div>
+              <div class="pl" style="width:70%"></div>
+              <div class="pl" style="width:88%"></div>
+              <div class="pl" style="width:60%"></div>
+              <div class="pl" style="width:90%"></div>
+              <div style="margin-top:12px;font-size:10px;color:#b3bdc9">原始文件预览区（第 <span id="pageNo">1</span> 页 / 共 <span id="pageTotal">2</span> 页）</div>
+            </div>
+          </div>
+          <div class="thumbs" id="thumbs">
+            <div class="th on" onclick="pickPage(this,1)"><div class="l"></div><div class="l"></div><div class="l" style="width:60%"></div><div class="l"></div><div class="l" style="width:80%"></div><div class="num">1</div></div>
+            <div class="th" onclick="pickPage(this,2)"><div class="l"></div><div class="l" style="width:70%"></div><div class="l"></div><div class="l" style="width:90%"></div><div class="l" style="width:50%"></div><div class="num">2</div></div>
+          </div>
+          <div class="viewer-bar">
+            <button class="btn sm">放大查看</button>
+            <button class="btn sm">新窗口查看原图</button>
+            <button class="btn sm">下载原文件</button>
+          </div>
+        </div>
+        <div class="note">全部文件均在缩略图区显示，不只保留第一张。PDF 按浏览器实际能力预览；不能原生预览的格式提供经验证的转换预览或原文件下载，不塞进图片标签。</div>
+      </div>
+
+      <!-- 右：结构化结果 -->
+      <div class="grid">
+        <div class="card">
+          <div class="card-h"><h3>档案信息</h3><span class="tag">检查结果优先</span></div>
+          <div class="card-b">
+            <dl class="kv">
+              <dt>文档类型</dt><dd id="d-type">检验报告</dd>
+              <dt>主要日期</dt><dd id="d-date">2023-11-18 <span class="tag" style="margin-left:6px">已确认</span></dd>
+              <dt>医院 / 科室</dt><dd id="d-hosp">示例市第一人民医院 · 内科门诊</dd>
+              <dt>医生</dt><dd class="muted">原文未提供</dd>
+              <dt>原始文件名</dt><dd id="d-file">检验报告_生化_第1页.jpg、检验报告_生化_第2页.jpg</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h3 id="d-sec-title">逐项检验结果</h3><span class="sub" id="d-sec-sub">项目｜结果｜单位｜原参考范围｜原报告提示</span></div>
+          <div class="card-b" id="d-sec-body">
+            <table class="res-tbl">
+              <thead><tr><th>项目</th><th>结果</th><th>单位</th><th>原参考范围</th><th>原标记</th></tr></thead>
+              <tbody>
+                <tr><td>空腹血糖</td><td class="num" style="font-weight:600">5.4</td><td>mmol/L</td><td class="ref">3.9–6.1</td><td class="muted">—</td></tr>
+                <tr><td>总胆固醇</td><td class="num" style="font-weight:600">4.62</td><td>mmol/L</td><td class="ref">2.9–5.2</td><td class="muted">—</td></tr>
+                <tr><td>甘油三酯</td><td class="num" style="font-weight:600">1.28</td><td>mmol/L</td><td class="ref">0.45–1.70</td><td class="muted">—</td></tr>
+                <tr><td>高密度脂蛋白胆固醇</td><td class="num" style="font-weight:600">1.35</td><td>mmol/L</td><td class="ref">1.03–1.55</td><td class="muted">—</td></tr>
+                <tr><td>低密度脂蛋白胆固醇</td><td class="num" style="font-weight:600">2.71</td><td>mmol/L</td><td class="ref">1.89–3.37</td><td class="muted">—</td></tr>
+                <tr><td>血尿酸</td><td class="num" style="font-weight:600">352</td><td>μmol/L</td><td class="ref">208–428</td><td class="muted">—</td></tr>
+                <tr><td>定性项目示例</td><td>阴性</td><td class="muted">—</td><td class="ref">阴性</td><td class="muted">—</td></tr>
+              </tbody>
+            </table>
+            <div class="note">
+              原报告提示列仅复现原文明确印出的 ↑ / ↓ 等标记，不自动生成异常 / 正常 / 偏高 / 偏低标签。
+              定性结果（阴性、阳性、弱阳性、±、1+、&lt;某值、&gt;某值）原样保留，不被宽松解析成精确数值。
+              未提供参考范围时不套用互联网通用范围。
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="d-source-card">
+          <div class="card-h"><h3>原文照录</h3><span class="sub">来自原资料，非系统判断</span></div>
+          <div class="card-b">
+            <div class="src-block" id="d-source-text">
+              <b>报告意见（原文照录）：</b>本次检验项目结果见上表，请结合临床。<br>
+              <span class="muted" style="font-size:11.5px">以上文字来自原始报告，属于资料原文，不是系统生成的医学判断。</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h3>次要信息</h3></div>
+          <div class="card-b">
+            <dl class="kv">
+              <dt>标本类型</dt><dd>血清</dd>
+              <dt>采样时间</dt><dd class="num">2023-11-18 08:12</dd>
+              <dt>报告时间</dt><dd class="num">2023-11-18 15:40</dd>
+              <dt>解析状态</dt><dd><span class="tag">已归档</span> <span class="muted" style="font-size:11.5px">已回读校验</span></dd>
+            </dl>
+            <details class="fold-json" style="margin-top:12px">
+              <summary>显示结构化数据（辅助信息，可折叠）</summary>
+              <pre>{
+  "lab_results": [
+    { "name": "空腹血糖", "result": "5.4", "unit": "mmol/L",
+      "reference": "3.9-6.1", "flag": null, "condition": "空腹" },
+    { "name": "定性项目示例", "result": "阴性", "unit": null,
+      "reference": "阴性", "flag": null }
+  ],
+  "specimen": "血清",
+  "collected_at": "2023-11-18T08:12:00",
+  "reported_at": "2023-11-18T15:40:00"
+}</pre>
+            </details>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 抽屉：添加关注 ================= -->
+<div class="mask" id="mask" onclick="closeAll()"></div>
+
+<div class="drawer" id="drawer-follow">
+  <div class="dh"><h3>添加关注指标</h3><button class="btn ghost sm" onclick="closeAll()">关闭</button></div>
+  <div class="db">
+    <div class="field">
+      <label>搜索指标</label>
+      <input type="text" placeholder="输入指标名称或别名…">
+      <div class="hint">使用受控的完整项目名称与有边界的别名映射，不用过宽的子串匹配。</div>
+    </div>
+    <div class="sec-t">可添加关注（当前未关注）</div>
+    <div class="pick-list">
+      <div class="pi">
+        <div class="info"><div class="n">血肌酐</div><div class="m">肾功能 · 数值 · 默认单位 μmol/L</div></div>
+        <button class="btn sm primary">添加关注</button>
+      </div>
+      <div class="pi">
+        <div class="info"><div class="n">TSH</div><div class="m">甲状腺 · 数值 · 默认单位 mIU/L</div></div>
+        <button class="btn sm primary">添加关注</button>
+      </div>
+      <div class="pi">
+        <div class="info"><div class="n">OGTT 血糖</div><div class="m">特殊指标组 · 5 个时点</div></div>
+        <button class="btn sm primary">添加关注</button>
+      </div>
+      <div class="pi">
+        <div class="info"><div class="n">OGTT 胰岛素</div><div class="m">特殊指标组 · 5 个时点</div></div>
+        <button class="btn sm primary">添加关注</button>
+      </div>
+    </div>
+    <div class="note">
+      添加关注只改变目录的关注状态，<b>不新增检查次数</b>、不生成结果。
+      取消关注只隐藏关注入口，不删除目录或历史记录。
+    </div>
+  </div>
+  <div class="df"><button class="btn" onclick="closeAll()">取消</button><button class="btn primary" onclick="closeAll()">确认</button></div>
+</div>
+
+<!-- ================= 抽屉：自定义指标 ================= -->
+<div class="drawer" id="drawer-custom">
+  <div class="dh"><h3>新建自定义指标</h3><button class="btn ghost sm" onclick="closeAll()">关闭</button></div>
+  <div class="db">
+    <div class="field"><label>指标名称 <span class="req">*</span></label><input type="text" placeholder="例如：餐后 2 小时血糖"></div>
+    <div class="field"><label>所属分组</label><select><option>血糖</option><option>血压</option><option>血脂</option><option>尿酸</option><option>体重</option><option>肾功能</option><option>甲状腺</option><option>胰岛素</option><option>其他</option></select></div>
+    <div class="field">
+      <label>记录类型 <span class="req">*</span></label>
+      <select><option>数值</option><option>双数值（如收缩压 / 舒张压）</option><option>定性文字</option></select>
+      <div class="hint">复杂「指标组」类型在未实现前不提供创建选项，避免暴露无效选项。</div>
+    </div>
+    <div class="field"><label>默认单位</label><input type="text" placeholder="例如：mmol/L"><div class="hint">可留空；留空时展示为「未提供」。</div></div>
+    <div class="field"><label>别名（逗号分隔）</label><input type="text" placeholder="例如：餐后血糖, PBG"><div class="hint">读取后统一为列表；仅用于受控的项目名称匹配。</div></div>
+    <div class="note">新自定义指标默认可关注，但<b>不生成任何结果</b>；需要另行录入真实数据。</div>
+  </div>
+  <div class="df"><button class="btn" onclick="closeAll()">取消</button><button class="btn primary" onclick="closeAll()">保存指标</button></div>
+</div>
+
+<!-- ================= 抽屉：日常录入 ================= -->
+<div class="drawer" id="drawer-daily">
+  <div class="dh"><h3>录入日常结果</h3><button class="btn ghost sm" onclick="closeAll()">关闭</button></div>
+  <div class="db">
+    <div class="field"><label>选择指标 <span class="req">*</span></label><select><option>空腹血糖（数值）</option><option>血压（双数值）</option><option>血尿酸（数值）</option><option>体重（数值）</option><option>定性示例（定性文字）</option></select></div>
+    <div class="field"><label>记录日期 <span class="req">*</span></label><input type="date" value="2026-09-15"></div>
+    <div class="field"><label>数值一 <span class="req">*</span></label><input type="number" step="0.01" placeholder="例如 5.4"></div>
+    <div class="field" style="display:none"><label>数值二</label><input type="number" step="0.01"></div>
+    <div class="field"><label>单位</label><input type="text" placeholder="例如：mmol/L"></div>
+    <div class="field"><label>测量条件</label><select><option>未说明</option><option>空腹</option><option>餐后 2 小时</option><option>随机</option></select><div class="hint">条件不确定时不猜测，保持「未说明」以保证可比性不被混淆。</div></div>
+    <div class="field"><label>核对状态</label><select><option>已核对</option><option>待核对</option></select></div>
+    <div class="field"><label>备注</label><textarea rows="2" placeholder="选填"></textarea></div>
+    <div class="note">来源恒标记为<b>手动录入</b>，与报告提取内容区分。用户填写一次结果才新增一条记录。</div>
+  </div>
+  <div class="df"><button class="btn" onclick="closeAll()">取消</button><button class="btn primary" onclick="closeAll()">保存记录</button></div>
+</div>
+
+<!-- ================= 弹窗：开始用药 ================= -->
+<div class="drawer" id="drawer-start">
+  <div class="dh"><h3>开始用药</h3><button class="btn ghost sm" onclick="closeAll()">关闭</button></div>
+  <div class="db">
+    <div class="sec-t">个人实际方案（需用户确认）</div>
+    <div class="field"><label>开始日期 <span class="req">*</span></label><input type="date" value="2026-09-15"></div>
+    <div class="field"><label>个人实际每次用量 <span class="req">*</span></label><input type="text" placeholder="例如：1 片"></div>
+    <div class="field"><label>个人实际频次 <span class="req">*</span></label><input type="text" placeholder="例如：每日 1 次"></div>
+    <div class="field"><label>服用时间</label><input type="text" placeholder="选填，例如：每晚睡前"></div>
+    <div class="field"><label>计划结束日期</label><input type="date"><div class="hint">计划结束不能早于开始日期。</div></div>
+    <div class="field"><label>备注</label><textarea rows="2" placeholder="选填"></textarea></div>
+    <div class="note">说明书通用用量<b>不会</b>被自动填成个人方案。状态变更将真实持久化；远端更新失败会提示失败并保持原状态。</div>
+  </div>
+  <div class="df"><button class="btn" onclick="closeAll()">取消</button><button class="btn primary" onclick="closeAll()">确认并开始</button></div>
+</div>
+
+<!-- ================= 药品详情层 ================= -->
+<div class="detail-layer" id="drugLayer">
+  <div class="detail-top">
+    <div class="inner">
+      <button class="bk" onclick="closeDrug()">← 返回药品管理</button>
+      <span class="ttl" id="drugTitle">阿托伐他汀钙片</span>
+      <span class="tag solid" id="drugStatus" style="margin-left:auto">正在服用</span>
+    </div>
+  </div>
+  <div class="detail-body">
+    <div class="split">
+      <div>
+        <div class="viewer">
+          <div class="stage">
+            <div class="paper" style="width:66%;height:70%">
+              <div style="font-size:9.5px;color:#8a94a3">药盒照片区</div>
+              <div class="ph" style="margin-top:10px"></div>
+              <div class="pl" style="width:80%"></div>
+              <div class="pl" style="width:64%"></div>
+            </div>
+          </div>
+          <div class="thumbs">
+            <div class="th on"><div class="l"></div><div class="l" style="width:70%"></div><div class="num">正面</div></div>
+            <div class="th"><div class="l"></div><div class="l" style="width:50%"></div><div class="num">背面</div></div>
+            <div class="th"><div class="l"></div><div class="l" style="width:80%"></div><div class="num">说明书</div></div>
+          </div>
+          <div class="viewer-bar"><button class="btn sm">放大查看</button><button class="btn sm">新窗口查看原图</button></div>
+        </div>
+        <div class="note">同药多图合并为一份逻辑药品资料，全部图片保留并可切换。</div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="card-h"><h3>药品信息</h3><span class="tag">原文提取</span></div>
+          <div class="card-b">
+            <dl class="kv">
+              <dt>药品名称</dt><dd>阿托伐他汀钙片</dd>
+              <dt>通用名称</dt><dd>阿托伐他汀钙</dd>
+              <dt>商品名</dt><dd class="muted">原文未提供</dd>
+              <dt>规格 / 剂型</dt><dd>20mg · 片剂</dd>
+              <dt>给药途径</dt><dd>口服</dd>
+              <dt>有效期</dt><dd><span class="exp exp-soon">2026-03 · 临期提示</span></dd>
+              <dt>数量</dt><dd>28 片（原文明确）</dd>
+              <dt>原文用途 / 适应症</dt><dd class="muted">原文照录，不自动转为个人用药计划</dd>
+              <dt>来源文档</dt><dd>门诊处方_阿托伐他汀.jpg <span class="muted" style="font-size:11.5px">（2023-06-09）</span></dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h3>个人实际用药</h3><span class="tag">用户录入</span></div>
+          <div class="card-b">
+            <dl class="kv">
+              <dt>每次用量</dt><dd>1 片</dd>
+              <dt>频次</dt><dd>每晚 1 次</dd>
+              <dt>服用时间</dt><dd class="muted">原文与用户均未提供</dd>
+              <dt>开始日期</dt><dd class="num">2023-06-11</dd>
+              <dt>计划结束</dt><dd class="num muted">未设置</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h3>状态事件历史</h3><span class="sub">不被最新状态覆盖</span></div>
+          <div class="card-b">
+            <table class="res-tbl">
+              <thead><tr><th>事件</th><th>日期</th><th>原状态 → 新状态</th><th>当次用量 / 频次</th></tr></thead>
+              <tbody>
+                <tr><td>开始用药</td><td class="num">2023-06-11</td><td>备用药 → 正在服用</td><td>1 片 · 每晚 1 次</td></tr>
+                <tr><td>暂停用药</td><td class="num">2023-08-02</td><td>正在服用 → 备用药</td><td class="muted">—</td></tr>
+                <tr><td>开始用药</td><td class="num">2023-09-05</td><td>备用药 → 正在服用</td><td>1 片 · 每晚 1 次</td></tr>
+              </tbody>
+            </table>
+            <div class="note">暂停是回到备用药，不建立第四种「暂停」状态。再次开始不改写上次实际用药历史。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- 导航 ---------------- */
+function go(name){
+  document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('on') });
+  var t = document.getElementById('s-' + name);
+  if (t) t.classList.add('on');
+  document.querySelectorAll('#nav button').forEach(function(b){
+    b.classList.toggle('active', b.dataset.go === name);
+  });
+  window.scrollTo(0,0);
+  window.__currentView = name;
+  if (name === 'receipts') window.__receiptsEntry = 'overview';
+}
+document.querySelectorAll('#nav button').forEach(function(b){
+  b.addEventListener('click', function(){ closeDoc(); closeDrug(); go(b.dataset.go) });
+});
+document.querySelectorAll('#rangeTabs button').forEach(function(b){
+  b.addEventListener('click', function(){
+    document.querySelectorAll('#rangeTabs button').forEach(function(x){ x.classList.remove('on') });
+    b.classList.add('on');
+  });
+});
+
+/* ---------------- 点击滚动位置记忆（验证返回恢复） ---------------- */
+var savedScroll = { timeline: 0, archive: 0, receipts: 0, overview: 0 };
+function rememberScroll(){
+  var v = window.__currentView || 'overview';
+  savedScroll[v] = window.scrollY;
+}
+
+/* ---------------- 文档详情层 ---------------- */
+var DOC_META = {
+  lab:      { back: '返回健康档案', title: '示例市第一人民医院 生化检验报告', type: '检验报告', pages: 2 },
+  lab2022:  { back: '返回健康档案', title: '示例区社区卫生服务中心 生化检验', type: '检验报告', pages: 3 },
+  exam:     { back: '返回健康档案', title: '示例市第一人民医院 胸部 CT 检查报告', type: '检查报告', pages: 1 },
+  invoice:  { back: '返回票据来源', title: '示例市第一人民医院 门诊收费单', type: '收费单', pages: 1 },
+  invoice2022a:{ back: '返回票据来源', title: '社区卫生服务中心 门诊收费单', type: '收费单', pages: 1 },
+  invoice2022b:{ back: '返回票据来源', title: '社区卫生服务中心 检验收费单', type: '收费单', pages: 1 },
+  invoiceUnknown:{ back: '返回票据来源', title: '门诊收费单（日期待确认）', type: '收费单', pages: 1 },
+  invoiceNoAmt:{ back: '返回票据来源', title: '门诊收费单（金额未知）', type: '收费单', pages: 1 },
+  invoiceZero:{ back: '返回票据来源', title: '门诊收费单（零金额）', type: '收费单', pages: 1 },
+  rx:       { back: '返回健康档案', title: '门诊处方 阿托伐他汀钙片', type: '处方 / 用药单', pages: 1 },
+  unknown:  { back: '返回健康档案', title: '疫苗接种记录（日期待确认）', type: '其他医疗资料', pages: 1 }
+};
+
+/* 不同文档类型切换右侧结构化内容 */
+var DOC_BODY = {
+  exam: {
+    title: '检查所见与报告意见',
+    sub: '原文照录，不做医学知识补全',
+    html: '<div class="src-block" style="margin-bottom:12px"><b>检查所见（原文照录）：</b><br>双肺纹理清晰，未见明确实质性病变。气管、支气管通畅。纵隔居中，未见肿大淋巴结。心影大小形态未见明显异常。<br><span class="muted" style="font-size:11.5px">以上来自原始报告，不是系统生成结论。</span></div>'
+        + '<div class="src-block"><b>报告意见（原文照录）：</b><br>胸部 CT 未见明显异常。<br><span class="muted" style="font-size:11.5px">以上来自原始报告，不是系统生成结论。</span></div>'
+        + '<div class="note">检查名称、临床资料、检查方法、检查所见、报告意见分别保存。不能只展示检查名称或一句摘要。</div>'
+  },
+  invoice: {
+    title: '逐项收费明细',
+    sub: '项目｜单价｜数量｜金额｜医保类别',
+    html: '<table class="res-tbl"><thead><tr><th>收费项目</th><th>单价</th><th>数量</th><th>金额</th><th>医保类别</th></tr></thead><tbody>'
+        + '<tr><td>生化检验（血糖）</td><td class="num">32.00</td><td class="num">1</td><td class="num" style="font-weight:600">32.00</td><td class="ref">甲类</td></tr>'
+        + '<tr><td>生化检验（血脂四项）</td><td class="num">48.00</td><td class="num">1</td><td class="num" style="font-weight:600">48.00</td><td class="ref">甲类</td></tr>'
+        + '<tr><td colspan="3" style="text-align:right;color:#55606f">合计</td><td class="num" style="font-weight:640">80.00</td><td></td></tr>'
+        + '</tbody></table>'
+        + '<div class="note">收费单只说明收费项目与金额，不据此推断确诊疾病、检查所见、治疗实施或服药事实。医保支付 / 个人支付原文未提供，显示「未提供」而不是 ¥0.00。</div>'
+  },
+  rx: {
+    title: '处方原文',
+    sub: '原文用法与个人实际用药分开记录',
+    html: '<table class="res-tbl"><thead><tr><th>药品名称</th><th>规格</th><th>数量</th><th>原文用法</th><th>途径</th></tr></thead><tbody>'
+        + '<tr><td>阿托伐他汀钙片</td><td>20mg</td><td class="num">28 片</td><td>每日 1 次，每次 1 片</td><td>口服</td></tr>'
+        + '</tbody></table>'
+        + '<div class="note">原处方用法为用户个人实际填写内容的<b>不同来源</b>，两者在药品详情中分别展示、明确区分。</div>'
+  },
+  unknown: {
+    title: '原文信息',
+    sub: '日期待确认',
+    html: '<div class="src-block">原文未印明确业务日期，未使用今天、上传日期、文件修改日期或猜测年份代替。</div>'
+        + '<div class="note">该记录可查看，但<b>不参与</b>按日期计算的趋势与年度统计。</div>'
+  }
+};
+
+function openDoc(kind){
+  rememberScroll();
+  var m = DOC_META[kind] || DOC_META.lab;
+  document.getElementById('docBackLabel').textContent = m.back;
+  document.getElementById('docTitle').textContent = m.title;
+  document.getElementById('docTypeTag').textContent = m.type;
+  document.getElementById('pageTotal').textContent = m.pages;
+  document.getElementById('pageNo').textContent = '1';
+
+  /* 缩略图数量 */
+  var th = document.getElementById('thumbs');
+  var labels = ['1','2','3'];
+  th.innerHTML = '';
+  for (var i = 0; i < m.pages; i++){
+    var d = document.createElement('div');
+    d.className = 'th' + (i === 0 ? ' on' : '');
+    d.setAttribute('onclick','pickPage(this,' + (i+1) + ')');
+    d.innerHTML = '<div class="l"></div><div class="l" style="width:70%"></div><div class="num">第 ' + labels[i] + ' 页</div>';
+    th.appendChild(d);
+  }
+
+  /* 右侧结构化内容 */
+  var b = DOC_BODY[kind];
+  if (b){
+    document.getElementById('d-sec-title').textContent = b.title;
+    document.getElementById('d-sec-sub').textContent = b.sub;
+    document.getElementById('d-sec-body').innerHTML = b.html;
+    document.getElementById('d-source-card').style.display = 'none';
+  } else {
+    document.getElementById('d-sec-title').textContent = '逐项检验结果';
+    document.getElementById('d-sec-sub').textContent = '项目｜结果｜单位｜原参考范围｜原报告提示';
+    document.getElementById('d-sec-body').innerHTML =
+      '<table class="res-tbl"><thead><tr><th>项目</th><th>结果</th><th>单位</th><th>原参考范围</th><th>原标记</th></tr></thead><tbody>'
+      + '<tr><td>空腹血糖</td><td class="num" style="font-weight:600">5.4</td><td>mmol/L</td><td class="ref">3.9–6.1</td><td class="muted">—</td></tr>'
+      + '<tr><td>总胆固醇</td><td class="num" style="font-weight:600">4.62</td><td>mmol/L</td><td class="ref">2.9–5.2</td><td class="muted">—</td></tr>'
+      + '<tr><td>血尿酸</td><td class="num" style="font-weight:600">352</td><td>μmol/L</td><td class="ref">208–428</td><td class="muted">—</td></tr>'
+      + '<tr><td>定性项目示例</td><td>阴性</td><td class="muted">—</td><td class="ref">阴性</td><td class="muted">—</td></tr>'
+      + '</tbody></table>'
+      + '<div class="note">原报告提示列仅复现原文明确印出的 ↑ / ↓ 标记，不自动生成异常 / 正常 / 偏高 / 偏低标签。定性结果原样保留，不被解析成精确数值。</div>';
+    document.getElementById('d-source-card').style.display = '';
+  }
+
+  var layer = document.getElementById('docLayer');
+  layer.classList.add('on');
+  layer.scrollTop = 0;          /* 关键：独立容器从顶部开始，不做 window.scrollTo */
+  document.body.style.overflow = 'hidden';
+}
+
+function closeDoc(){
+  var layer = document.getElementById('docLayer');
+  if (!layer.classList.contains('on')) return;
+  layer.classList.remove('on');
+  document.body.style.overflow = '';
+  window.scrollTo(0, savedScroll[window.__currentView] || 0);
+}
+
+function pickPage(el, n){
+  document.querySelectorAll('#thumbs .th').forEach(function(t){ t.classList.remove('on') });
+  el.classList.add('on');
+  document.getElementById('pageNo').textContent = n;
+}
+
+/* ---------------- 药品详情层 ---------------- */
+var DRUG_META = {
+  atorva:      { t: '阿托伐他汀钙片', s: '正在服用', cls: 'tag solid' },
+  metformin:   { t: '二甲双胍片', s: '正在服用', cls: 'tag solid' },
+  amoxicillin: { t: '阿莫西林胶囊', s: '备用药', cls: 'tag gray' },
+  vitd:        { t: '维生素 D 滴剂', s: '备用药', cls: 'tag gray' },
+  cefixime:    { t: '头孢克肟分散片', s: '已停用', cls: 'tag outline' }
+};
+function openDrug(k){
+  var m = DRUG_META[k] || DRUG_META.atorva;
+  document.getElementById('drugTitle').textContent = m.t;
+  var st = document.getElementById('drugStatus');
+  st.textContent = m.s;
+  st.className = m.cls;
+  var layer = document.getElementById('drugLayer');
+  layer.classList.add('on');
+  layer.scrollTop = 0;
+  document.body.style.overflow = 'hidden';
+}
+function closeDrug(){
+  var layer = document.getElementById('drugLayer');
+  if (!layer.classList.contains('on')) return;
+  layer.classList.remove('on');
+  document.body.style.overflow = '';
+  window.scrollTo(0, savedScroll[window.__currentView] || 0);
+}
+
+/* ---------------- 指标详情 ---------------- */
+function openIndicator(k){
+  rememberScroll();
+  window.__indicatorFrom = window.__currentView || 'overview';
+  go('indicator');
+}
+
+/* ---------------- 抽屉 ---------------- */
+function openDrawer(id){
+  document.getElementById('mask').classList.add('on');
+  var d = document.getElementById(id);
+  if (d) d.classList.add('on');
+}
+function closeAll(){
+  document.getElementById('mask').classList.remove('on');
+  document.querySelectorAll('.drawer').forEach(function(d){ d.classList.remove('on') });
+}
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape'){ closeAll(); closeDoc(); closeDrug(); }
+});
+
+/* 初始化：默认激活数据概览 */
+window.__currentView = 'overview';
+</script>
+</body>
+</html>

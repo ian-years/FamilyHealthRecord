@@ -1,0 +1,81 @@
+{
+  "x_request_id": "27ef8bc774c4272348a828d8338dad78",
+  "trace_id": "27ef8bc774c4272348a828d8338dad78",
+  "task_id": "cb3d75c6379f4710a72cab4bdd42dad2",
+  "run_id": "f692e6649127278b5b07da7e2f4fe5b7",
+  "status": "completed",
+  "view": "markdown",
+  "total_count": 3,
+  "completed_count": 3,
+  "failed_count": 0,
+  "exported_count": 3,
+  "files": [
+    {
+      "resource_id": "385c9b67ce6644d4bffccd11ce0a455e",
+      "file_id": "5b570c04159c4acc95325d91b57c1d43",
+      "source_name": "virtual-drug-back.png",
+      "output": "virtual-drug-back.md",
+      "status": "completed"
+    },
+    {
+      "resource_id": "666b759a2b8b47d6b3cd34e976ff07d4",
+      "file_id": "d0ec475ad52248bea484a1455ce653ff",
+      "source_name": "virtual-drug-front.png",
+      "output": "virtual-drug-front.md",
+      "status": "completed"
+    },
+    {
+      "resource_id": "485d016600784a868a7819d87ff2699a",
+      "file_id": "2eb715e45fd7449492f71684e6e1eba7",
+      "source_name": "virtual-drug-leaflet.png",
+      "output": "virtual-drug-leaflet.md",
+      "status": "completed"
+    }
+  ],
+  "request_trace": [
+    {
+      "operation": "task_get",
+      "x_request_id": "d24822f7b3a2c41279e1f28585b8070c",
+      "trace_id": "d24822f7b3a2c41279e1f28585b8070c",
+      "task_id": "cb3d75c6379f4710a72cab4bdd42dad2"
+    },
+    {
+      "operation": "run_get",
+      "x_request_id": "27ef8bc774c4272348a828d8338dad78",
+      "trace_id": "27ef8bc774c4272348a828d8338dad78",
+      "task_id": "cb3d75c6379f4710a72cab4bdd42dad2",
+      "run_id": "f692e6649127278b5b07da7e2f4fe5b7"
+    },
+    {
+      "operation": "run_results_list",
+      "x_request_id": "60096a5734207ea0050b3f6936d8f271",
+      "trace_id": "60096a5734207ea0050b3f6936d8f271",
+      "run_id": "f692e6649127278b5b07da7e2f4fe5b7"
+    },
+    {
+      "operation": "run_result_get",
+      "x_request_id": "943792bae28b2ed90ea1b2f2785d6bd8",
+      "trace_id": "943792bae28b2ed90ea1b2f2785d6bd8",
+      "file_id": "5b570c04159c4acc95325d91b57c1d43",
+      "task_id": "cb3d75c6379f4710a72cab4bdd42dad2",
+      "run_id": "f692e6649127278b5b07da7e2f4fe5b7"
+    },
+    {
+      "operation": "run_result_get",
+      "x_request_id": "fbe8edec42e7250567d9fd02d590bcf4",
+      "trace_id": "fbe8edec42e7250567d9fd02d590bcf4",
+      "file_id": "d0ec475ad52248bea484a1455ce653ff",
+      "task_id": "cb3d75c6379f4710a72cab4bdd42dad2",
+      "run_id": "f692e6649127278b5b07da7e2f4fe5b7"
+    },
+    {
+      "operation": "run_result_get",
+      "x_request_id": "efd6fadc4f048c3656628ad55293b283",
+      "trace_id": "efd6fadc4f048c3656628ad55293b283",
+      "file_id": "2eb715e45fd7449492f71684e6e1eba7",
+      "task_id": "cb3d75c6379f4710a72cab4bdd42dad2",
+      "run_id": "f692e6649127278b5b07da7e2f4fe5b7"
+    }
+  ],
+  "generated_at": "2026-09-15T12:25:58Z"
+}

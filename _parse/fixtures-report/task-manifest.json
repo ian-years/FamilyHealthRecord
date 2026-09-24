@@ -1,0 +1,66 @@
+{
+  "x_request_id": "06f800ef215a3187d5f2bc2482d401df",
+  "trace_id": "06f800ef215a3187d5f2bc2482d401df",
+  "task_id": "f8ff9f0d655a4c809ec41134fa52a063",
+  "run_id": "b1ddd4072254b3074081289230cb4f82",
+  "status": "completed",
+  "view": "markdown",
+  "total_count": 2,
+  "completed_count": 2,
+  "failed_count": 0,
+  "exported_count": 2,
+  "files": [
+    {
+      "resource_id": "ef74d2e8ad8447a7a4be3d93ac04e277",
+      "file_id": "f6b142238a0a4b5bb912ca5306e8330e",
+      "source_name": "virtual-report-page1.png",
+      "output": "virtual-report-page1.md",
+      "status": "completed"
+    },
+    {
+      "resource_id": "80c23720adf742ffab534207b6a549ac",
+      "file_id": "1deca88c9e7249f18a5893d7b47f4f5b",
+      "source_name": "virtual-report-page2.png",
+      "output": "virtual-report-page2.md",
+      "status": "completed"
+    }
+  ],
+  "request_trace": [
+    {
+      "operation": "task_get",
+      "x_request_id": "daa5fc19face0b746a1f3d39973d378f",
+      "trace_id": "daa5fc19face0b746a1f3d39973d378f",
+      "task_id": "f8ff9f0d655a4c809ec41134fa52a063"
+    },
+    {
+      "operation": "run_get",
+      "x_request_id": "06f800ef215a3187d5f2bc2482d401df",
+      "trace_id": "06f800ef215a3187d5f2bc2482d401df",
+      "task_id": "f8ff9f0d655a4c809ec41134fa52a063",
+      "run_id": "b1ddd4072254b3074081289230cb4f82"
+    },
+    {
+      "operation": "run_results_list",
+      "x_request_id": "62f9029dcbbaf6604b1630f0a86bb096",
+      "trace_id": "62f9029dcbbaf6604b1630f0a86bb096",
+      "run_id": "b1ddd4072254b3074081289230cb4f82"
+    },
+    {
+      "operation": "run_result_get",
+      "x_request_id": "660c108c16450fcf53d81a3f59174815",
+      "trace_id": "660c108c16450fcf53d81a3f59174815",
+      "file_id": "f6b142238a0a4b5bb912ca5306e8330e",
+      "task_id": "f8ff9f0d655a4c809ec41134fa52a063",
+      "run_id": "b1ddd4072254b3074081289230cb4f82"
+    },
+    {
+      "operation": "run_result_get",
+      "x_request_id": "aabf374f2c7caecaddaf1ffa8a09541e",
+      "trace_id": "aabf374f2c7caecaddaf1ffa8a09541e",
+      "file_id": "1deca88c9e7249f18a5893d7b47f4f5b",
+      "task_id": "f8ff9f0d655a4c809ec41134fa52a063",
+      "run_id": "b1ddd4072254b3074081289230cb4f82"
+    }
+  ],
+  "generated_at": "2026-09-15T12:25:26Z"
+}

@@ -1,0 +1,334 @@
+{
+  "schema": "health-records-archive-package/v1",
+  "generated_at": "2026-09-15T20:38:48",
+  "target": "health_records",
+  "note": "虚构测试数据：同一份报告 2 页 → 1 条档案、2 个附件。原始文件需在归档时单独选择。",
+  "records": [
+    {
+      "document_type": "检验报告",
+      "primary_date": "2024-03-15",
+      "date_status": "已确认",
+      "hospital": "虚构综合门诊部",
+      "department": "检验科",
+      "doctor": null,
+      "title": "【虚构】检验报告单（2024-03-15 · 3 页）",
+      "key_information": "虚构检验报告，共 3 页、24 项检验结果\n含血常规五分类、空腹血糖、血脂四项、血清尿酸、血清肌酐、尿常规，以及口服葡萄糖耐量试验（葡萄糖 5 个时点、胰岛素 2 个时点）与糖化血红蛋白\n本资料为虚构测试数据，不含任何真实个人信息",
+      "amount": null,
+      "source_file": "virtual-report-page1.png、virtual-report-page2.png、virtual-report-page3.png",
+      "source_attachments": [],
+      "parsed_content": "【本资料为虚构测试数据，不含任何真实个人信息；用于验证多图（三页）归档链路。】\n\n# 虚构综合门诊部 检验报告单\n\n姓名：虚构测试人\n\n性别：男\n\n年龄：40\n\n样本号：FICT-901\n\n检验日期：2024-03-15\n\n报告日期：2024-03-15\n\n第1页／共3页\n\n<table border=\"1\" ><tr>\n<td>检验项目</td>\n<td>结果</td>\n<td>单位</td>\n<td>参考范围</td>\n<td>提示</td>\n</tr><tr>\n<td>白细胞计数</td>\n<td>6.42</td>\n<td>10^9/L</td>\n<td>3.5-9.5</td>\n<td></td>\n</tr><tr>\n<td>红细胞计数</td>\n<td>4.71</td>\n<td>10^12/L</td>\n<td>4.3-5.8</td>\n<td></td>\n</tr><tr>\n<td>血红蛋白</td>\n<td>142</td>\n<td>g/L</td>\n<td>130-175</td>\n<td></td>\n</tr><tr>\n<td>血小板计数</td>\n<td>228</td>\n<td>10^9/L</td>\n<td>125-350</td>\n<td></td>\n</tr><tr>\n<td>中性粒细胞百分比</td>\n<td>58.2</td>\n<td>%</td>\n<td>40-75</td>\n<td></td>\n</tr><tr>\n<td>淋巴细胞百分比</td>\n<td>33.1</td>\n<td>%</td>\n<td>20-50</td>\n<td></td>\n</tr><tr>\n<td>空腹血糖</td>\n<td>5.62</td>\n<td>mmol/L</td>\n<td>3.9-6.1</td>\n<td></td>\n</tr><tr>\n<td>总胆固醇</td>\n<td>5.41</td>\n<td>mmol/L</td>\n<td>$<=5.2$</td>\n<td>↑</td>\n</tr></table>\n\n本页为第1页，含血常规与血糖、总胆固醇。\n\n本报告单为虚构测试数据，用于验证多图归档链路；不含任何真实个人信息。\n\n<!-- 虚构测试数据 -->\n\n\n\n<!-- 第 %d 页 -->\n\n# 虚构综合门诊部 检验报告单\n\n姓名：虚构测试人\n\n性别：男\n\n年龄：40\n\n样本号：FICT-902\n\n检验日期：2024-03-15\n\n报告日期：2024-03-15\n\n第2页／共3页\n\n<table border=\"1\" ><tr>\n<td>检验项目</td>\n<td>结果</td>\n<td>单位</td>\n<td>参考范围</td>\n<td>提示</td>\n</tr><tr>\n<td>甘油三酯</td>\n<td>1.42</td>\n<td>mmol/L</td>\n<td>&lt;1.7</td>\n<td></td>\n</tr><tr>\n<td>高密度脂蛋白胆固醇</td>\n<td>1.35</td>\n<td>mmol/L</td>\n<td>&gt;1.0</td>\n<td></td>\n</tr><tr>\n<td>低密度脂蛋白胆固醇</td>\n<td>3.28</td>\n<td>mmol/L</td>\n<td>&lt;3.36</td>\n<td></td>\n</tr><tr>\n<td>血清尿酸</td>\n<td>412.60</td>\n<td>umol/L</td>\n<td>208-428</td>\n<td></td>\n</tr><tr>\n<td>血清肌酐</td>\n<td>79.20</td>\n<td>umol/L</td>\n<td>57-97</td>\n<td></td>\n</tr><tr>\n<td>C 反应蛋白</td>\n<td>1.8</td>\n<td>mg/L</td>\n<td>0-8</td>\n<td></td>\n</tr><tr>\n<td>尿蛋白</td>\n<td>阴性</td>\n<td></td>\n<td>阴性</td>\n<td></td>\n</tr><tr>\n<td>尿糖</td>\n<td>阴性</td>\n<td></td>\n<td>阴性</td>\n<td></td>\n</tr></table>\n\n本页为第2页，含血脂其余三项、尿酸、肌酐与尿常规。\n\n本报告单为虚构测试数据，用于验证多图归档链路；不含任何真实个人信息。\n\n<!-- 虚构测试数据 -->\n\n\n\n<!-- 第 %d 页 -->\n\n# 虚构综合门诊部 检验报告单\n\n姓名：虚构测试人\n\n性别：男\n\n年龄：40\n\n样本号：FICT-903\n\n检验日期：2024-03-15\n\n报告日期：2024-03-15\n\n第3页／共3页\n\n<table border=\"1\" ><tr>\n<td>检验项目</td>\n<td>结果</td>\n<td>单位</td>\n<td>参考范围</td>\n<td>提示</td>\n</tr><tr>\n<td>葡萄糖（空腹）</td>\n<td>5.20</td>\n<td>mmol/L</td>\n<td>3.9-6.1</td>\n<td></td>\n</tr><tr>\n<td>葡萄糖（30 分钟）</td>\n<td>9.80</td>\n<td>mmol/L</td>\n<td>&lt;11.1</td>\n<td></td>\n</tr><tr>\n<td>葡萄糖（60 分钟）</td>\n<td>10.60</td>\n<td>mmol/L</td>\n<td>&lt;11.1</td>\n<td></td>\n</tr><tr>\n<td>葡萄糖（120 分钟）</td>\n<td>7.90</td>\n<td>mmol/L</td>\n<td>&lt;7.8</td>\n<td>↑</td>\n</tr><tr>\n<td>葡萄糖（180 分钟）</td>\n<td>5.40</td>\n<td>mmol/L</td>\n<td>3.9-6.1</td>\n<td></td>\n</tr><tr>\n<td>胰岛素（空腹）</td>\n<td>8.20</td>\n<td>ulU/mL</td>\n<td>2.6-24.9</td>\n<td></td>\n</tr><tr>\n<td>胰岛素（120 分钟）</td>\n<td>56.30</td>\n<td>ulU/mL</td>\n<td></td>\n<td></td>\n</tr><tr>\n<td>糖化血红蛋白</td>\n<td>5.50</td>\n<td>%</td>\n<td>4.0-6.0</td>\n<td></td>\n</tr></table>\n\n本页为第3页，含口服葡萄糖耐量试验（5个时点）与糖化血红蛋白。\n\n本报告单为虚构测试数据，用于验证多图归档链路；不含任何真实个人信息。\n\n<!-- 虚构测试数据 -->\n\n",
+      "type_specific_data": {
+        "report_kind": "lab_report",
+        "lab_results": [
+          {
+            "name": "白细胞计数",
+            "result": "6.42",
+            "unit": "10^9/L",
+            "reference": "3.5-9.5",
+            "flag": null,
+            "panel": "血常规五分类",
+            "page": 1,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "红细胞计数",
+            "result": "4.71",
+            "unit": "10^12/L",
+            "reference": "4.3-5.8",
+            "flag": null,
+            "panel": "血常规五分类",
+            "page": 1,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "血红蛋白",
+            "result": "142",
+            "unit": "g/L",
+            "reference": "130-175",
+            "flag": null,
+            "panel": "血常规五分类",
+            "page": 1,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "血小板计数",
+            "result": "228",
+            "unit": "10^9/L",
+            "reference": "125-350",
+            "flag": null,
+            "panel": "血常规五分类",
+            "page": 1,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "中性粒细胞百分比",
+            "result": "58.2",
+            "unit": "%",
+            "reference": "40-75",
+            "flag": null,
+            "panel": "血常规五分类",
+            "page": 1,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "淋巴细胞百分比",
+            "result": "33.1",
+            "unit": "%",
+            "reference": "20-50",
+            "flag": null,
+            "panel": "血常规五分类",
+            "page": 1,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "空腹血糖",
+            "result": "5.62",
+            "unit": "mmol/L",
+            "reference": "3.9-6.1",
+            "flag": null,
+            "panel": "生化-血糖",
+            "page": 1,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "总胆固醇",
+            "result": "5.41",
+            "unit": "mmol/L",
+            "reference": "<=5.2",
+            "flag": "↑",
+            "panel": "生化-血脂",
+            "page": 1,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "甘油三酯",
+            "result": "1.42",
+            "unit": "mmol/L",
+            "reference": "<1.7",
+            "flag": null,
+            "panel": "生化-血脂",
+            "page": 2,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "高密度脂蛋白胆固醇",
+            "result": "1.35",
+            "unit": "mmol/L",
+            "reference": ">1.0",
+            "flag": null,
+            "panel": "生化-血脂",
+            "page": 2,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "低密度脂蛋白胆固醇",
+            "result": "3.28",
+            "unit": "mmol/L",
+            "reference": "<3.36",
+            "flag": null,
+            "panel": "生化-血脂",
+            "page": 2,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "血清尿酸",
+            "result": "412.60",
+            "unit": "μmol/L",
+            "reference": "208-428",
+            "flag": null,
+            "panel": "生化-肾功",
+            "page": 2,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "血清肌酐",
+            "result": "79.20",
+            "unit": "μmol/L",
+            "reference": "57-97",
+            "flag": null,
+            "panel": "生化-肾功",
+            "page": 2,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "C 反应蛋白",
+            "result": "1.8",
+            "unit": "mg/L",
+            "reference": "0-8",
+            "flag": null,
+            "panel": "生化",
+            "page": 2,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "尿蛋白",
+            "result": "阴性",
+            "unit": null,
+            "reference": "阴性",
+            "flag": null,
+            "panel": "尿常规",
+            "page": 2,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "尿糖",
+            "result": "阴性",
+            "unit": null,
+            "reference": "阴性",
+            "flag": null,
+            "panel": "尿常规",
+            "page": 2,
+            "condition": null,
+            "source_note": "原文照录"
+          },
+          {
+            "name": "葡萄糖（空腹）",
+            "result": "5.20",
+            "unit": "mmol/L",
+            "reference": "3.9-6.1",
+            "flag": null,
+            "panel": "口服葡萄糖耐量试验",
+            "page": 3,
+            "condition": "空腹",
+            "source_note": "原文照录"
+          },
+          {
+            "name": "葡萄糖（30 分钟）",
+            "result": "9.80",
+            "unit": "mmol/L",
+            "reference": "<11.1",
+            "flag": null,
+            "panel": "口服葡萄糖耐量试验",
+            "page": 3,
+            "condition": "30 分钟",
+            "source_note": "原文照录"
+          },
+          {
+            "name": "葡萄糖（60 分钟）",
+            "result": "10.60",
+            "unit": "mmol/L",
+            "reference": "<11.1",
+            "flag": null,
+            "panel": "口服葡萄糖耐量试验",
+            "page": 3,
+            "condition": "60 分钟",
+            "source_note": "原文照录"
+          },
+          {
+            "name": "葡萄糖（120 分钟）",
+            "result": "7.90",
+            "unit": "mmol/L",
+            "reference": "<7.8",
+            "flag": "↑",
+            "panel": "口服葡萄糖耐量试验",
+            "page": 3,
+            "condition": "120 分钟",
+            "source_note": "原文照录"
+          },
+          {
+            "name": "葡萄糖（180 分钟）",
+            "result": "5.40",
+            "unit": "mmol/L",
+            "reference": "3.9-6.1",
+            "flag": null,
+            "panel": "口服葡萄糖耐量试验",
+            "page": 3,
+            "condition": "180 分钟",
+            "source_note": "原文照录"
+          },
+          {
+            "name": "胰岛素（空腹）",
+            "result": "8.20",
+            "unit": "μIU/mL",
+            "reference": "2.6-24.9",
+            "flag": null,
+            "panel": "口服葡萄糖耐量试验",
+            "page": 3,
+            "condition": "空腹",
+            "source_note": "原文照录"
+          },
+          {
+            "name": "胰岛素（120 分钟）",
+            "result": "56.30",
+            "unit": "μIU/mL",
+            "reference": null,
+            "flag": null,
+            "panel": "口服葡萄糖耐量试验",
+            "page": 3,
+            "condition": "120 分钟",
+            "source_note": "原文照录"
+          },
+          {
+            "name": "糖化血红蛋白",
+            "result": "5.50",
+            "unit": "%",
+            "reference": "4.0-6.0",
+            "flag": null,
+            "panel": "糖化血红蛋白",
+            "page": 3,
+            "condition": null,
+            "source_note": "原文照录"
+          }
+        ],
+        "lab_panels": [
+          "血常规五分类",
+          "生化-血糖",
+          "生化-血脂",
+          "生化-肾功",
+          "生化",
+          "尿常规",
+          "口服葡萄糖耐量试验",
+          "糖化血红蛋白"
+        ],
+        "specimen": {
+          "sample_no": "FICT-901 / FICT-902 / FICT-903",
+          "report_note": "样本号与页码来自原文"
+        },
+        "inner_dates": [
+          {
+            "date": "2024-03-15",
+            "meaning": "检验日期与报告日期（原文同一天）"
+          }
+        ],
+        "multi_page_note": "同一份报告共 3 页，按一个逻辑档案归档，全部页保留在附件中。",
+        "flag_note": "「总胆固醇」「葡萄糖（120 分钟）」两项原报告印有 ↑，此处照录；其余项目原报告未印标记。",
+        "ocr_corrections": [
+          {
+            "field": "unit",
+            "item": "胰岛素（空腹）/ 胰岛素（120 分钟）",
+            "parsed": "ulU/mL",
+            "original_image": "uIU/mL",
+            "reason": "OCR 把大写 I 识别成小写 l；回原图核对为 uIU/mL，仅更正单位写法，数值未改。"
+          },
+          {
+            "field": "name",
+            "item": "葡萄糖（30 分钟）等",
+            "parsed": "葡萄糖（30 分钟）",
+            "original_image": "葡萄糖（30分钟）",
+            "reason": "OCR 在数字与「分钟」之间多出空格；项目名称的时点含义不变，保留解析原样，时点识别已兼容空格。"
+          }
+        ],
+        "virtual_data": true
+      },
+      "parse_status": "已归档",
+      "xparse_task_id": "c683285beb2b491c9f2e15cb509f33ae",
+      "xparse_run_id": "ba110c037784380f9f1506dcb7d4c14c",
+      "file_hash": "2e1242a4072fffa5e26577350999df679b126bdc9bf7c52f9c625da2180bbe46"
+    }
+  ]
+}

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>个人健康档案工作台</title>
+<!-- 图标内联为 SVG：本地版不打额外请求，也避免浏览器去讨一个不存在的 /favicon.ico -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f5fa9'/%3E%3Cpath d='M16 23.4s-6.8-4.3-6.8-9.1A4.1 4.1 0 0 1 16 11.3a4.1 4.1 0 0 1 6.8 3c0 4.8-6.8 9.1-6.8 9.1z' fill='%23ffffff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css?v=20260923-6">
+</head>
+<body>
+
+<!-- 本地版没有登录页：打开即用，数据只在本机浏览器内 -->
+
+<!-- ================= 主应用 ================= -->
+<div id="app" class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <h1>个人健康档案</h1>
+      <p>Health Records Workbench</p>
+    </div>
+    <nav class="nav" id="nav">
+      <button data-go="overview" class="active">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+        数据概览
+      </button>
+      <button data-go="timeline">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
+        健康档案
+      </button>
+      <button data-go="upload">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 11V3M5 6l3-3 3 3M3 12v1.5h10V12"/></svg>
+        上传资料
+      </button>
+      <button data-go="archive">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h12v3H2zM3 6.5h10V13H3z"/><path d="M7 9h2"/></svg>
+        原始资料档案
+      </button>
+      <button data-go="drugs">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="5.5" width="12" height="7" rx="2"/><path d="M8 5.5v7"/></svg>
+        药品管理
+      </button>
+      <button data-go="persons" id="navPersons">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5.5" r="2.4"/><path d="M2 13.2c0-2.1 1.8-3.4 4-3.4s4 1.3 4 3.4"/><path d="M11.4 4.2a2.1 2.1 0 0 1 0 4.1M12.4 13.2c0-1.7-.8-2.7-2-3.3"/></svg>
+        成员管理
+      </button>
+    </nav>
+    <div class="side-foot">
+      <div class="who" id="whoami"></div>
+      <button class="btn sm" id="btnBackup" style="width:100%;margin-bottom:6px">导出备份</button>
+      <button class="btn sm ghost" id="btnRestore" style="width:100%;margin-bottom:6px">从备份恢复</button>
+      <button class="btn sm ghost" id="btnClearLocal" style="width:100%">清空本机数据</button>
+      <div style="margin-top:9px;line-height:1.65">数据只保存在本机浏览器，请定期导出备份。</div>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <button class="nav-toggle" id="btnSidebar" type="button" aria-label="打开导航">
+      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+      导航
+    </button>
+    <div id="globalMsg" class="global-msg" hidden></div>
+    <section class="screen on" id="s-overview"></section>
+    <section class="screen" id="s-timeline"></section>
+    <section class="screen" id="s-upload"></section>
+    <section class="screen" id="s-archive"></section>
+    <section class="screen" id="s-drugs"></section>
+    <section class="screen" id="s-persons"></section>
+  </main>
+</div>
+
+<!-- ================= 详情：医疗文档 ================= -->
+<div class="detail-layer" id="docLayer">
+  <div class="detail-top">
+    <div class="inner">
+      <button class="bk" id="docBack">← <span id="docBackLabel">返回</span></button>
+      <span class="ttl" id="docTitle"></span>
+      <span class="tag" id="docTypeTag" style="margin-left:auto"></span>
+    </div>
+  </div>
+  <div class="detail-body" id="docBody"></div>
+</div>
+
+<!-- ================= 详情：药品 ================= -->
+<div class="detail-layer" id="drugLayer">
+  <div class="detail-top">
+    <div class="inner">
+      <button class="bk" id="drugBack">← 返回药品管理</button>
+      <span class="ttl" id="drugTitle"></span>
+      <span class="tag" id="drugStatus" style="margin-left:auto"></span>
+    </div>
+  </div>
+  <div class="detail-body" id="drugBody"></div>
+</div>
+
+<!-- ================= 详情：指标 ================= -->
+<div class="detail-layer" id="indLayer">
+  <div class="detail-top">
+    <div class="inner">
+      <button class="bk" id="indBack">← <span id="indBackLabel">返回数据概览</span></button>
+      <span class="ttl" id="indTitle"></span>
+      <button class="btn sm" id="indDailyEntry" style="margin-left:auto">录入日常结果</button>
+    </div>
+  </div>
+  <div class="detail-body" id="indBody"></div>
+</div>
+
+<!-- ================= 详情：指标目录管理（V2） ================= -->
+<div class="detail-layer" id="catLayer">
+  <div class="detail-top">
+    <div class="inner">
+      <button class="bk" id="catBack">← 返回数据概览</button>
+      <span class="ttl">指标目录管理</span>
+      <span class="tag" id="catCount" style="margin-left:auto"></span>
+    </div>
+  </div>
+  <div class="detail-body" id="catBody"></div>
+</div>
+
+<!-- ================= 详情：全部票据来源 ================= -->
+<div class="detail-layer" id="rcLayer">
+  <div class="detail-top">
+    <div class="inner">
+      <button class="bk" id="rcBack">← 返回数据概览</button>
+      <span class="ttl">全部票据来源</span>
+    </div>
+  </div>
+  <div class="detail-body" id="rcBody"></div>
+</div>
+
+<!-- ================= 遮罩与抽屉 ================= -->
+<div class="mask" id="mask"></div>
+<div class="scrim" id="scrim"></div>
+
+<div class="drawer" id="drawer-follow">
+  <div class="dh"><h3>添加关注指标</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db" id="followBody"></div>
+  <div class="df"><button class="btn" data-close="1">取消</button></div>
+</div>
+
+<div class="drawer" id="drawer-custom">
+  <div class="dh"><h3>新建自定义指标</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db">
+    <div class="field"><label>指标名称 <span class="req">*</span></label><input type="text" id="cusName" placeholder="例如：餐后 2 小时血糖"></div>
+    <div class="field"><label>所属分组</label><select id="cusGroup"></select></div>
+    <div class="field"><label>记录类型 <span class="req">*</span></label>
+      <select id="cusType"><option value="数值">数值</option><option value="双数值">双数值（如收缩压 / 舒张压）</option><option value="定性文字">定性文字</option></select>
+      <div class="hint">复杂「指标组」类型未实现前不提供创建选项，避免暴露无效选项。</div></div>
+    <div class="field"><label>默认单位</label><input type="text" id="cusUnit" placeholder="例如：mmol/L"><div class="hint">可留空；留空时展示为「未提供」。</div></div>
+    <div class="field"><label>别名（逗号分隔）</label><input type="text" id="cusAlias" placeholder="例如：餐后血糖, PBG"><div class="hint">仅用于受控的项目名称匹配，不做过宽的子串匹配。</div></div>
+    <div class="field"><label>立即关注</label><select id="cusFollow"><option value="yes">是</option><option value="no">否</option></select></div>
+    <div class="note">新建指标只写入目录，<b>不生成任何结果</b>。</div>
+  </div>
+  <div class="df"><button class="btn" data-close="1">取消</button><button class="btn primary" id="btnCusSave">保存指标</button></div>
+</div>
+
+<div class="drawer" id="drawer-daily">
+  <div class="dh"><h3>录入日常结果</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db" id="dailyBody"></div>
+  <div class="df"><button class="btn" data-close="1">取消</button><button class="btn primary" id="btnDailySave">保存记录</button></div>
+</div>
+
+<div class="drawer" id="drawer-start">
+  <div class="dh"><h3>开始用药</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db" id="startBody"></div>
+  <div class="df"><button class="btn" data-close="1">取消</button><button class="btn primary" id="btnStartSave">确认并开始</button></div>
+</div>
+
+<div class="drawer" id="drawer-pause">
+  <div class="dh"><h3>暂停用药</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db" id="pauseBody"></div>
+  <div class="df"><button class="btn" data-close="1">取消</button><button class="btn primary" id="btnPauseSave">确认暂停</button></div>
+</div>
+
+<div class="drawer" id="drawer-stop">
+  <div class="dh"><h3>停止用药</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db" id="stopBody"></div>
+  <div class="df"><button class="btn" data-close="1">取消</button><button class="btn primary" id="btnStopSave">确认停止</button></div>
+</div>
+
+<div class="drawer" id="drawer-import">
+  <div class="dh"><h3>归档已解析资料</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db" id="importBody"></div>
+  <div class="df"><button class="btn" data-close="1">取消</button><button class="btn primary" id="btnImportSave">写入档案</button></div>
+</div>
+
+<div class="drawer" id="drawer-restore">
+  <div class="dh"><h3>从备份恢复</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db">
+    <div class="field"><label>备份文件（.json）<span class="req">*</span></label>
+      <input type="file" id="rsFile" accept=".json,application/json">
+      <div class="hint">选择由「导出备份」生成的文件。会先校验格式，格式不符时不会写入任何内容。</div></div>
+    <div class="boundary">
+      <b>恢复会先清空再写入。</b>本机现有的四张表与全部附件都会被替换为备份内容，此操作不可撤销。<br><br>
+      <b>只合并不覆盖的恢复未实现。</b>所以恢复前请先导出一份当前备份，避免误操作后无处可退。<br><br>
+      <b>格式不符不写入。</b>只有校验通过（含 schema 标识与四张表结构）的备份才会被执行。
+    </div>
+    <div id="restoreMsg"></div>
+  </div>
+  <div class="df"><button class="btn" data-close="1">取消</button><button class="btn primary" id="btnRestoreConfirm">确认恢复</button></div>
+</div>
+
+<div class="drawer" id="drawer-llm">
+  <div class="dh"><h3>结构化模型配置</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db" id="llmBody"></div>
+  <div class="df"><button class="btn" data-close="1">关闭</button></div>
+</div>
+
+<div class="drawer" id="drawer-struct">
+  <div class="dh"><h3>智能结构化</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db" id="structBody"></div>
+  <div class="df"><button class="btn" data-close="1">关闭</button></div>
+</div>
+
+<!-- 手工编辑记录信息：原件上没有、或解析读错的信息，得能在界面上改 -->
+<div class="drawer" id="drawer-recedit">
+  <div class="dh"><h3>编辑记录信息</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db" id="receditBody"></div>
+  <div class="df"><button class="btn" data-close="1">取消</button><button class="btn primary" id="btnRecEditSave">保存修改</button></div>
+</div>
+
+<div class="drawer" id="drawer-policy">
+  <div class="dh"><h3>状态与有效期规则</h3><button class="btn ghost sm" data-close="1">关闭</button></div>
+  <div class="db" id="policyBody"></div>
+  <div class="df"><button class="btn" data-close="1">关闭</button></div>
+</div>
+
+<!-- 本地版不加载任何云端 SDK，也不再有配置文件：数据全部走 localdb.js 的本地存储。
+     资源仍带版本参数，便于将来换用带缓存的静态服务器时能可靠刷新。 -->
+<script src="localdb.js?v=20260923-6"></script>
+<script src="logic.js?v=20260923-6"></script>
+<script src="app.js?v=20260923-6"></script>
+<!-- V2 关系型数据模块：依赖 app.js 里的全局函数，必须排在后面。
+     后端没有 V2 表时它会安静地什么都不做，不影响原有页面。 -->
+<script src="v2.js?v=20260923-1"></script>
+</body>
+</html>

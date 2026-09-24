@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>业务逻辑自检 · 个人健康档案工作台</title>
+<style>
+:root{--bg:#f4f6f9;--surface:#fff;--line:#e2e6ed;--text:#1c2430;--text-2:#55606f;--text-3:#8a94a3;--blue:#1f5fa9;--blue-soft:#e8f0fa}
+*{box-sizing:border-box}
+body{margin:0;padding:26px;background:var(--bg);color:var(--text);font-size:14px;line-height:1.65;
+  font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif}
+.wrap{max-width:900px;margin:0 auto}
+h1{font-size:19px;margin:0 0 5px}
+.sub{color:var(--text-3);font-size:12.5px;margin:0 0 16px}
+.sync{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text-2)}
+.ok{background:var(--blue-soft);border:1px solid #d3e2f4;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13.5px}
+.bad{background:#f7f9fb;border:1px solid #cbd3df;border-left:3px solid #3b4a5e;border-radius:0 8px 8px 0;padding:12px 14px;margin-bottom:14px;font-size:13.5px}
+ol{background:var(--surface);border:1px solid var(--line);border-radius:8px;margin:0;padding:10px 14px 10px 34px;list-style:none;counter-reset:t}
+ol li{counter-increment:t;padding:8px 0;border-bottom:1px solid #f2f5f8;font-size:13px;font-family:ui-monospace,Consolas,monospace}
+ol li:last-child{border-bottom:0}
+ol li::before{content:counter(t) ".";display:inline-block;width:26px;color:var(--text-3);font-family:inherit}
+li.p{color:#1c2430}
+li.f{color:#3b4a5e;background:#fbfcfd}
+li.f::after{content:"　✕";color:#3b4a5e}
+li.p::after{content:"　✓";color:var(--blue)}
+.m{font-size:12px;color:var(--text-2);margin:5px 0 0 26px;font-family:inherit}
+a.back{display:inline-block;margin-top:16px;font-size:12.5px;color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>业务逻辑自检</h1>
+  <p class="sub">全部用例使用隔离的虚构数据。本页只验证纯逻辑：日期有效性、空值语义、严格数值、受控单位换算、指标匹配、趋势口径、费用口径、时间线分组、药品状态机与输出转义。</p>
+  <div class="sync">提示：本页不连接数据库，也不代表数据库读写已通过。四表真实读写的回读校验在应用内的归档流程与同步状态条上体现。</div>
+  <div id="out">正在运行…</div>
+  <a class="back" href="index.html">← 返回工作台</a>
+</div>
+<script src="logic.js?v=20260915-3"></script>
+<script src="tests.js?v=20260915-3"></script>
+</body>
+</html>

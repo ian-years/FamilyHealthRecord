@@ -1,0 +1,66 @@
+{
+  "x_request_id": "c8238d4b4571f381580db2d5cf68823f",
+  "trace_id": "c8238d4b4571f381580db2d5cf68823f",
+  "task_id": "400595a48cd140c985e365702e6304e2",
+  "run_id": "13c7f7ae7a53cd965b085e9a2c6d13fb",
+  "status": "completed",
+  "view": "markdown",
+  "total_count": 2,
+  "completed_count": 2,
+  "failed_count": 0,
+  "exported_count": 2,
+  "files": [
+    {
+      "resource_id": "ffe46da1fd584c879ede7fb3c317bf2a",
+      "file_id": "00a0c6265d3b4e6f85331b817e646bd3",
+      "source_name": "virtual-receipt-2024-05-08-detail.png",
+      "output": "virtual-receipt-2024-05-08-detail.md",
+      "status": "completed"
+    },
+    {
+      "resource_id": "cd6afb4d7c914b8fafce9c29391a287d",
+      "file_id": "a980670db09a49a582a553b866275e3e",
+      "source_name": "virtual-receipt-2024-05-08.png",
+      "output": "virtual-receipt-2024-05-08.md",
+      "status": "completed"
+    }
+  ],
+  "request_trace": [
+    {
+      "operation": "task_get",
+      "x_request_id": "fa7dcac92adbbd61a8b3b34ae3c33864",
+      "trace_id": "fa7dcac92adbbd61a8b3b34ae3c33864",
+      "task_id": "400595a48cd140c985e365702e6304e2"
+    },
+    {
+      "operation": "run_get",
+      "x_request_id": "c8238d4b4571f381580db2d5cf68823f",
+      "trace_id": "c8238d4b4571f381580db2d5cf68823f",
+      "task_id": "400595a48cd140c985e365702e6304e2",
+      "run_id": "13c7f7ae7a53cd965b085e9a2c6d13fb"
+    },
+    {
+      "operation": "run_results_list",
+      "x_request_id": "0f969efc67edcdbecf4da7170d50ee2d",
+      "trace_id": "0f969efc67edcdbecf4da7170d50ee2d",
+      "run_id": "13c7f7ae7a53cd965b085e9a2c6d13fb"
+    },
+    {
+      "operation": "run_result_get",
+      "x_request_id": "ea34b3902dd444296ea8810aeaf6d860",
+      "trace_id": "ea34b3902dd444296ea8810aeaf6d860",
+      "file_id": "00a0c6265d3b4e6f85331b817e646bd3",
+      "task_id": "400595a48cd140c985e365702e6304e2",
+      "run_id": "13c7f7ae7a53cd965b085e9a2c6d13fb"
+    },
+    {
+      "operation": "run_result_get",
+      "x_request_id": "8bb741242f4b6d0e63b58bddcae79159",
+      "trace_id": "8bb741242f4b6d0e63b58bddcae79159",
+      "file_id": "a980670db09a49a582a553b866275e3e",
+      "task_id": "400595a48cd140c985e365702e6304e2",
+      "run_id": "13c7f7ae7a53cd965b085e9a2c6d13fb"
+    }
+  ],
+  "generated_at": "2026-09-15T12:27:55Z"
+}

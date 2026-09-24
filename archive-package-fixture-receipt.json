@@ -1,0 +1,81 @@
+{
+  "schema": "health-records-archive-package/v1",
+  "generated_at": "2026-09-15T20:38:48",
+  "target": "health_records",
+  "note": "虚构测试数据：同一票据号 2 页 → 1 条票据、2 个附件，含逐项收费与支付拆分。",
+  "records": [
+    {
+      "document_type": "医疗发票/收费单",
+      "primary_date": "2024-05-08",
+      "date_status": "已确认",
+      "hospital": "虚构社区卫生服务中心",
+      "department": "全科门诊",
+      "doctor": null,
+      "title": "【虚构】门诊收费单（2024-05-08 · 2 页）",
+      "key_information": "虚构门诊收费单，共 2 页、收费项目 5 项\n总金额 92.00 元，其中医保支付 64.00 元、个人支付 28.00 元\n两页票据号同为 FICT-R-20240508-001，按同一张票据合并归档\n本资料为虚构测试数据，不含任何真实交易信息",
+      "amount": 92.0,
+      "source_file": "virtual-receipt-2024-05-08.png、virtual-receipt-2024-05-08-detail.png",
+      "source_attachments": [],
+      "parsed_content": "【本资料为虚构测试数据，仅用于验证多页票据合并归档与费用统计链路。】\n\n# 虚构社区卫生服务中心 门诊收费单\n\n收费日期：2024-05-08\n\n结算时间：2024-05-08 10:24\n\n票据号：FICT-R-20240508-001 科室：全科门诊\n\n<table border=\"1\" ><tr>\n<td>收费项目</td>\n<td>单价</td>\n<td>数量</td>\n<td>金额</td>\n<td>医保类别</td>\n</tr><tr>\n<td>普通门诊诊查费</td>\n<td>10.00</td>\n<td>1</td>\n<td>10.00</td>\n<td>甲类</td>\n</tr><tr>\n<td>血常规检验</td>\n<td>25.00</td>\n<td>1</td>\n<td>25.00</td>\n<td>甲类</td>\n</tr><tr>\n<td>血糖测定</td>\n<td>12.00</td>\n<td>1</td>\n<td>12.00</td>\n<td>甲类</td>\n</tr><tr>\n<td>尿常规检验</td>\n<td>15.00</td>\n<td>1</td>\n<td>15.00</td>\n<td>乙类</td>\n</tr><tr>\n<td>心电图检查</td>\n<td>30.00</td>\n<td>1</td>\n<td>30.00</td>\n<td>甲类</td>\n</tr></table>\n\n**总金额：92.00元**\n\n大写金额：玖拾贰元整\n\n医保支付：64.00元\n\n个人支付：28.00元\n\n支付方式：医保个人账户＋现金\n\n本收费单为虚构测试数据，仅用于验证票据归档与费用统计链路。\n\n<!-- 虚构测试数据 -->\n\n\n\n<!-- 第 %d 页 -->\n\n# 虚构社区卫生服务中心 门诊收费单·费用明细附件\n\n收费日期：2024-05-08\n\n票据号：FICT-R-20240508-001\n\n第2页／共2页\n\n科室：全科门诊\n\n<table border=\"1\" ><tr>\n<td>明细序号</td>\n<td>收费项目</td>\n<td>执行科室</td>\n<td>金额</td>\n<td>医保类别</td>\n</tr><tr>\n<td>1</td>\n<td>普通门诊诊查费</td>\n<td>全科门诊</td>\n<td>10.00</td>\n<td>甲类</td>\n</tr><tr>\n<td>2</td>\n<td>血常规检验</td>\n<td>检验科</td>\n<td>25.00</td>\n<td>甲类</td>\n</tr><tr>\n<td>3</td>\n<td>血糖测定</td>\n<td>检验科</td>\n<td>12.00</td>\n<td>甲类</td>\n</tr><tr>\n<td>4</td>\n<td>尿常规检验</td>\n<td>检验科</td>\n<td>15.00</td>\n<td>乙类</td>\n</tr><tr>\n<td>5</td>\n<td>心电图检查</td>\n<td>功能科</td>\n<td>30.00</td>\n<td>甲类</td>\n</tr></table>\n\n**明细合计：92.00元**\n\n与收费单主单总金额一致。\n\n本页为虚构测试数据，用于验证多页票据合并归档。\n\n<!-- 虚构测试数据 -->\n\n",
+      "type_specific_data": {
+        "total_amount": 92.0,
+        "insurance_payment": 64.0,
+        "self_payment": 28.0,
+        "amount_in_words": "玖拾贰元整",
+        "settle_time": "2024-05-08 10:24",
+        "payment_method": "医保个人账户 + 现金",
+        "charge_items": [
+          {
+            "name": "普通门诊诊查费",
+            "unit_price": "10.00",
+            "qty": "1",
+            "amount": "10.00",
+            "insurance_type": "甲类"
+          },
+          {
+            "name": "血常规检验",
+            "unit_price": "25.00",
+            "qty": "1",
+            "amount": "25.00",
+            "insurance_type": "甲类"
+          },
+          {
+            "name": "血糖测定",
+            "unit_price": "12.00",
+            "qty": "1",
+            "amount": "12.00",
+            "insurance_type": "甲类"
+          },
+          {
+            "name": "尿常规检验",
+            "unit_price": "15.00",
+            "qty": "1",
+            "amount": "15.00",
+            "insurance_type": "乙类"
+          },
+          {
+            "name": "心电图检查",
+            "unit_price": "30.00",
+            "qty": "1",
+            "amount": "30.00",
+            "insurance_type": "甲类"
+          }
+        ],
+        "invoice_no": "FICT-R-20240508-001",
+        "page_count": 2,
+        "multi_page_note": "同一票据号 FICT-R-20240508-001 出现在 2 页上，按一张票据归档；第 2 页明细合计 92.00 元与主单总金额一致，作为页间对账凭据。",
+        "cross_page_check": {
+          "第一页总金额": 92.0,
+          "第二页明细合计": 92.0,
+          "一致": true
+        },
+        "virtual_data": true,
+        "scope_note": "收费单只说明收费项目和金额，不据此推断确诊疾病、检查所见、治疗实施或服药事实。"
+      },
+      "parse_status": "已归档",
+      "xparse_task_id": "400595a48cd140c985e365702e6304e2",
+      "xparse_run_id": "13c7f7ae7a53cd965b085e9a2c6d13fb",
+      "file_hash": "f33a2ed8d7fd6b9c61c6a177662a51e19347d28b9ae2511bf4e3fb72fe0fa721"
+    }
+  ]
+}

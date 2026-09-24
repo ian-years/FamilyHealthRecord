@@ -89,7 +89,7 @@ def apply(store):
     完整行复制一份再改 document_type。只提交 {id, document_type} 会把解析原文、
     附件引用、归属成员连同标题一起抹平。
     """
-    rows = store.read_all('health_records')
+    rows = store.read_all('documents')
     todo = set(p['id'] for p in plan(rows))
     if not todo:
         return 0, None
@@ -102,7 +102,7 @@ def apply(store):
             nr = dict(r)
             nr['document_type'] = TARGET
             patch.append(nr)
-    return store.upsert('health_records', patch), snap
+    return store.upsert('documents', patch), snap
 
 
 def main(argv):
@@ -112,7 +112,7 @@ def main(argv):
         if a == '--data-dir' and i + 1 < len(argv):
             data_dir = argv[i + 1]
     store = hrw_store.Store(ROOT, data_dir=data_dir)
-    rows = store.read_all('health_records')
+    rows = store.read_all('documents')
     todo = plan(rows)
 
     print('数据目录：%s' % store.data_dir)
@@ -133,7 +133,7 @@ def main(argv):
         return 2
     print('\n已打快照：%s' % snap)
     print('已回改 %d 条。' % n)
-    left = plan(store.read_all('health_records'))
+    left = plan(store.read_all('documents'))
     print('复查：还可回改 %d 条（应为 0）。' % len(left))
     return 0 if not left else 1
 

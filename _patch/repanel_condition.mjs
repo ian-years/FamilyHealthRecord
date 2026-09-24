@@ -139,7 +139,7 @@ async function main() {
     throw new Error('中止：--apply 指向的是自测数据目录，没有回改它的意义，还会污染自测夹具。');
   }
 
-  const rows = (await api('/api/db/rows?table=health_records')).rows || [];
+  const rows = (await api('/api/db/rows?table=documents')).rows || [];
   const before = groupProfile(rows, false);
   const p = plan(rows);
 
@@ -269,11 +269,11 @@ async function main() {
     });
     return t;
   });
-  const put = await api('/api/db/put', { table: 'health_records', rows: outRows });
+  const put = await api('/api/db/put', { table: 'documents', rows: outRows });
   console.log('  写入：' + put.written + ' 条档案（' + outRows.length + ' 条有改动）');
 
   console.log('\n=== 6. 回读核对：只该动 panel 与 condition ===');
-  const after2 = (await api('/api/db/rows?table=health_records')).rows || [];
+  const after2 = (await api('/api/db/rows?table=documents')).rows || [];
   let bad = 0;
   for (const orig of rows) {
     const now = after2.find(r => r.id === orig.id);

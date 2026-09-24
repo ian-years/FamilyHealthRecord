@@ -7,7 +7,7 @@ const require = createRequire('C:/Users/junlan/.workbuddy/binaries/node/workspac
 const puppeteer = require('puppeteer-core');
 
 const CHROME = 'C:/Users/junlan/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe';
-const BASE = 'http://127.0.0.1:8766/';
+const BASE = process.env.BASE || 'http://127.0.0.1:8766/';
 let pass = 0, fail = 0;
 function check(name, ok, extra) {
   console.log((ok ? 'PASS' : 'FAIL') + '  ' + name + (extra ? '  → ' + extra : ''));
@@ -25,7 +25,7 @@ await p.goto(BASE, { waitUntil: 'networkidle2' });
 await sleep(3500);
 
 const rows = () => p.evaluate(async () =>
-  (await (await fetch('/api/db/rows?table=health_records')).json()).rows);
+  (await (await fetch('/api/db/rows?table=documents')).json()).rows);
 
 /* ---------- 3. 目录校准 ---------- */
 const inds = await p.evaluate(async () =>

@@ -106,7 +106,7 @@ check('plan() 本身不改动传进来的数据',
       rows[0]['document_type'] == '其他医疗资料')
 
 print('\n=== 5. 真的写库时不能丢掉别的字段 ===')
-# upsert 是「整行 payload 覆盖」而不是字段合并，所以执行必须拿完整行去改，
+# upsert 会把整行拆进关系列 + detail_json，所以执行必须拿完整行去改：
 # 只提交 {id, document_type} 会把标题、解析原文、附件引用、归属成员全部抹平。
 import shutil
 import tempfile
@@ -120,18 +120,25 @@ keep = {
     'source_attachments': [{'name': 'x_体检报告_2025-12-13.pdf', 'path': 'attachments/k.pdf'}],
     'type_specific_data': {'lab_results': [{'name': '血红蛋白', 'result': '145'}]},
 }
-st.upsert('health_records', [keep])
-target_id = st.read_all('health_records')[0]['id']
+st.upsert('documents', [keep])
+target_id = st.read_all('documents')[0]['id']
 
 changed, snap = R.apply(st)
 check('执行后返回改了多少条', changed == 1, str(changed))
 check('执行前打了快照并报名', bool(snap) and 'retype' in str(snap), str(snap))
 
-after = [r for r in st.read_all('health_records') if r['id'] == target_id][0]
+after = [r for r in st.read_all('documents') if r['id'] == target_id][0]
 check('类型改到了', after['document_type'] == '体检报告', after['document_type'])
 for f in ('title', 'primary_date', 'person_id', 'hospital', 'parsed_content',
-          'source_file', 'source_attachments', 'type_specific_data'):
+          'source_file', 'source_attachments'):
     check('字段 %s 原样保留' % f, after.get(f) == keep[f], str(after.get(f))[:60])
+# type_specific_data 由观测值重建（检验项名会归一化为规范名、补上单位/条件等键），
+# 所以比语义保真而不是逐字节相等：检验项一条不少、名字与结果都在。
+_tsd = after.get('type_specific_data') or {}
+_labs = _tsd.get('lab_results') or []
+check('字段 type_specific_data 的检验项保真',
+      len(_labs) == 1 and _labs[0].get('name') == '血红蛋白' and _labs[0].get('result') == '145',
+      str(_tsd)[:80])
 check('再跑一次不再改动（幂等）', R.apply(st)[0] == 0)
 
 shutil.rmtree(TMP, ignore_errors=True)

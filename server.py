@@ -496,9 +496,9 @@ class Handler(SimpleHTTPRequestHandler):
                 pid = int(person) if str(person).strip().isdigit() else None
                 return self.json_out({"ok": True, "fees": STORE.fees_summary(pid)})
 
-            # V2 关系表是否就位（前端据此判断要不要走新接口）
+            # V2 关系表是唯一的数据结构（保留此端点，前端仍据此启用 V2 界面）
             if path == "/api/v2/status":
-                return self.json_out({"ok": True, "v2": STORE._v2_ready(),
+                return self.json_out({"ok": True, "v2": True,
                                       "tables": STORE.info().get("counts", {})})
 
             if path in ("/", ""):
@@ -547,7 +547,12 @@ class Handler(SimpleHTTPRequestHandler):
                 if not isinstance(rows, list):
                     rows = [rows] if rows is not None else []
                 n = STORE.upsert(table, rows)
-                return self.json_out({"ok": True, "written": n})
+                # 回传服务端分配的自增 id（数据层已把真实 id 写回每一行）。
+                # 不回传的话，前端只能自己猜 id —— 插入后拿它去开详情必然找不到档案，
+                # 撞上已存在的 id 还会被服务端当成"更新这条"而改写别人的记录。
+                return self.json_out({
+                    "ok": True, "written": n,
+                    "ids": [r.get("id") for r in rows if isinstance(r, dict)]})
 
             if path == "/api/db/delete":
                 n = STORE.delete(body.get("table"), body.get("ids") or [])
@@ -615,7 +620,7 @@ class Handler(SimpleHTTPRequestHandler):
                                       "stats": STORE.person_stats()})
 
             if path == "/api/persons/assign":
-                table = body.get("table") or "health_records"
+                table = body.get("table") or "documents"
                 if table not in hrw_store.TABLES:
                     return self.json_out({"ok": False, "reason": "未知的数据表：%s" % table}, 400)
                 # 校验必须在快照之前：快照带附件正文（实测单份 23~31 MB），
@@ -628,7 +633,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_out({"ok": True, "changed": n, "snapshot": snap})
 
             if path == "/api/persons/clear":
-                table = body.get("table") or "health_records"
+                table = body.get("table") or "documents"
                 if table not in hrw_store.TABLES:
                     return self.json_out({"ok": False, "reason": "未知的数据表：%s" % table}, 400)
                 STORE.check_person_id(body.get("person_id"))

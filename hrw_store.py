@@ -27,8 +27,12 @@ import shutil
 import sqlite3
 import threading
 
-TABLES = ['health_records', 'drugs', 'indicator_catalog', 'daily_indicator_records']
-BACKUP_SCHEMA = 'health-records-local-backup/v1'
+# 逻辑数据表（数据层与前端共用这四个名字）。V1 的文档式表已彻底废弃：
+#   health_records          → documents（关系列 + detail_json + observations + charge_items）
+#   indicator_catalog       → indicators（+ indicator_aliases）
+#   daily_indicator_records → manual_records
+TABLES = ['documents', 'drugs', 'indicators', 'manual_records']
+BACKUP_SCHEMA = 'health-records-local-backup/v2'
 SNAPSHOT_KEEP = 20          # 自动快照保留份数
 MAX_PARSE_LOG = 500         # 解析记录保留条数
 
@@ -97,9 +101,6 @@ class Store(object):
         with self._lock:
             c = self._conn()
             try:
-                for t in TABLES:
-                    c.execute('CREATE TABLE IF NOT EXISTS "%s" ('
-                              'id INTEGER PRIMARY KEY, payload TEXT NOT NULL)' % t)
                 c.execute('CREATE TABLE IF NOT EXISTS files ('
                           'path TEXT PRIMARY KEY, disk_name TEXT NOT NULL, name TEXT, '
                           'mime_type TEXT, size INTEGER, uploaded_at TEXT)')
@@ -107,130 +108,174 @@ class Store(object):
                 c.commit()
             finally:
                 c.close()
-        # V2 关系型表只在「已跑过 migrate.py」的库上补建（schema.sql 全是
-        # IF NOT EXISTS，迁移后再启动时补上新版本新增的表/索引）。
-        # 没迁移过的库（全新库、自测库）保持纯旧表 —— 否则旧界面读 drugs
-        # 这类表会撞上没有 payload 列的关系表，直接 500。
-        if self._migration_done():
-            self._shelve_legacy_drugs()
-            self._init_v2_schema()
-
-    def _migration_done(self):
+        # V2 表已就位时，V1 的文档式表就是遗留垃圾，直接清掉（数据早已搬到 V2 表）。
+        # 只有 V1 表、没有 documents 的库不在这里动 —— 那属于未迁移库，不该被静默删数据。
         try:
-            with self._lock:
-                c = self._conn()
-                try:
-                    names = {r[0] for r in c.execute(
-                        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-                    if 'migration_log' not in names:
-                        return False
-                    return c.execute('SELECT COUNT(*) FROM migration_log').fetchone()[0] > 0
-                finally:
-                    c.close()
+            c = self._conn()
+            try:
+                names = {r[0] for r in c.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            finally:
+                c.close()
+            if 'documents' in names:
+                self.drop_v1_tables()
         except Exception:
-            return False
-
-    def _shelve_legacy_drugs(self):
+            pass
+        # V2 关系型表是唯一的数据结构（schema.sql 全是 IF NOT EXISTS，可重复执行）。
+        self._init_v2_schema()
+        # 早期库里 observations.person_id 带着 NOT NULL，「未指定」的档案存不进检验项。
         try:
-            with self._lock:
-                c = self._conn()
-                try:
-                    names = {r[0] for r in c.execute(
-                        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-                    if 'drugs' not in names or 'legacy_drugs' in names:
-                        return
-                    cols = [r[1] for r in c.execute('PRAGMA table_info(drugs)').fetchall()]
-                    if not cols or not set(cols) <= {'id', 'payload'}:
-                        return
-                    c.execute('ALTER TABLE drugs RENAME TO legacy_drugs')
-                    c.commit()
-                finally:
-                    c.close()
+            self._relax_observation_person()
+        except Exception:
+            pass
+        # 历史残留的孤儿别名顺手清掉（清空目录 / 回灌备份会留下），失败不影响启动。
+        try:
+            self.purge_orphan_aliases()
         except Exception:
             pass
 
+    # V1 的文档式表（(id, payload) 结构）。V2 起不再读写，迁移时整表删掉。
+    V1_TABLES = ('health_records', 'indicator_catalog', 'daily_indicator_records',
+                 'legacy_drugs')
+
+    def drop_v1_tables(self):
+        """删掉遗留的 V1 文档式表。数据已由迁移脚本搬进 V2 表，这里只做清理。"""
+        with self._lock:
+            c = self._conn()
+            try:
+                for t in self.V1_TABLES:
+                    c.execute('DROP TABLE IF EXISTS "%s"' % t)
+                c.commit()
+            finally:
+                c.close()
+
     def _init_v2_schema(self):
-        """建 V2 关系表。schema.sql 全用 IF NOT EXISTS，重复执行无副作用。"""
+        """建 V2 关系表。schema.sql 全用 IF NOT EXISTS，重复执行无副作用。
+
+        逐条执行而不是整体 executescript：executescript 里任何一条报错都会把后面
+        所有语句一起咽掉，库就停在「建了一半」的状态 —— 后续在别的调用上以
+        「no such table」的形式炸出来，很难定位到真正的原因。逐条执行后，
+        坏的只影响它自己，其余表照建，并且失败的那条会写到 stderr。
+        """
         path = os.path.join(self.root, 'schema.sql')
         if not os.path.exists(path):
             return
         try:
             with open(path, encoding='utf-8') as fh:
                 sql = fh.read()
-            with self._lock:
-                c = self._conn()
+        except Exception as e:
+            import sys
+            sys.stderr.write('[hrw_store] 读不到 schema.sql：%r\n' % (e,))
+            return
+        failed = []
+        with self._lock:
+            c = self._conn()
+            try:
+                buf = ''
+                for line in sql.splitlines(True):
+                    buf += line
+                    if not sqlite3.complete_statement(buf):
+                        continue
+                    stmt = buf.strip()
+                    buf = ''
+                    if not stmt:
+                        continue
+                    try:
+                        c.execute(stmt)
+                    except Exception as e:
+                        failed.append((stmt.split('\n', 1)[0][:80], e))
+                c.commit()
+            except Exception as e:
+                failed.append(('(整个建表过程)', e))
+            finally:
+                c.close()
+        if failed:
+            # V2 表是唯一的数据结构，建不起来就没有可用界面 —— 不能静默吞掉
+            import sys
+            for head, e in failed:
+                sys.stderr.write('[hrw_store] 建 V2 表失败：%s ← %r\n' % (head, e))
+
+    def _relax_observation_person(self):
+        """把 observations.person_id 的 NOT NULL 去掉（早期版本建的表带 NOT NULL）。
+
+        为什么必须去掉：「未指定」是档案的合法状态（先导入、后归属），DB 里挂着
+        NOT NULL 时，这类档案的检验项写不进去 —— 用户看到的是「导入成功了，
+        但档案详情里检验结果一项都没有」。SQLite 不支持 ALTER COLUMN，
+        只能重建表；结构已经合规时这个方法什么都不做。
+        """
+        with self._lock:
+            c = self._conn()
+            try:
+                col = [r for r in c.execute('PRAGMA table_info(observations)')
+                       if r['name'] == 'person_id']
+                if not col or not col[0]['notnull']:
+                    return False
+                path = os.path.join(self.root, 'schema.sql')
+                if not os.path.exists(path):
+                    return False
+                with open(path, encoding='utf-8') as fh:
+                    sql = fh.read()
+                m = re.search(r'CREATE TABLE IF NOT EXISTS observations\s*\(.*?\n\);', sql, re.S)
+                if not m:
+                    return False
+                c.execute('PRAGMA foreign_keys=OFF')
+                c.execute('ALTER TABLE observations RENAME TO observations_notnull_old')
+                c.execute(m.group(0))
+                c.execute('INSERT INTO observations SELECT * FROM observations_notnull_old')
+                c.execute('DROP TABLE observations_notnull_old')
+                mx = c.execute('SELECT COALESCE(MAX(id), 0) FROM observations').fetchone()[0]
+                c.execute('INSERT OR REPLACE INTO sqlite_sequence (name, seq) '
+                          'VALUES (?, ?)', ('observations', mx))
+                c.commit()
+            except Exception as e:
                 try:
-                    c.executescript(sql)
-                    c.commit()
-                finally:
-                    c.close()
-        except Exception:
-            # 建表失败不该让整个工作台起不来；旧功能仍可用
-            pass
+                    c.rollback()
+                except Exception:
+                    pass
+                import sys
+                sys.stderr.write('[hrw_store] 放宽 observations.person_id 失败：%r\n' % (e,))
+                return False
+            finally:
+                c.close()
+        # 重建过程中索引随旧表一起被删，重新按 schema.sql 建回来
+        self._init_v2_schema()
+        return True
 
     def _check_table(self, table):
         if table not in TABLES:
             raise StoreError('未知的数据表：%s' % table)
 
-    def _next_id(self, c, table):
-        row = c.execute('SELECT MAX(id) FROM "%s"' % table).fetchone()
-        return int(row[0] or 0)
-
-    # ------------------------------------------------------------ 四张表
-
-    # ------------------------------------------------------------ V2 兼容层
+    # ------------------------------------------------------------ 读
     #
-    # 旧前端到处在读 health_records / drugs 这些「文档式」表。重构后数据是关系型的，
-    # 但不必把前端每一处都改掉：这里让旧表名继续可读可写，背后走新表。
-    # 读：有 legacy_payload 就直接给（与旧结构逐字段一致），没有则现场组装。
-    # 写：拆进关系列，同时把整条 JSON 存成 legacy_payload，保证下一次读得回来。
+    # 前端沿用「一行一条业务记录」的扁平行结构，数据全部来自 V2 关系表：
+    #   documents      ← documents 关系列 + detail_json（残留字段）+ 观测值 / 收费明细
+    #   drugs          ← drugs 关系列
+    #   indicators     ← indicators + indicator_aliases
+    #   manual_records ← manual_records 关系列
+    # documents 的 lab_results / charge_items 由关系表实时重建，改了档案详情跟着变。
 
-    def _v2_ready(self):
-        """V2 是否真正接管。必须同时满足：
-        ① 关系表在；② migration_log 里有已完成的迁移记录。
-        只查表存在是不够的 —— _init_db 会在任何库上自动建好空 V2 表，
-        没跑过 migrate.py 的库（比如自测用的全新库）应该继续走旧表旧界面。"""
-        if getattr(self, '_v2_cache', None) is not None:
-            return self._v2_cache
-        ok = False
+    @staticmethod
+    def _load_json(raw, default):
+        if not raw:
+            return default
         try:
-            c = self._conn()
-            try:
-                names = {r[0] for r in c.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-                ok = ('documents' in names and 'observations' in names
-                      and 'migration_log' in names
-                      and c.execute('SELECT COUNT(*) FROM migration_log').fetchone()[0] > 0)
-            finally:
-                c.close()
-        except Exception:
-            ok = False
-        self._v2_cache = ok
-        return ok
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            return default
 
-    def _documents_as_legacy(self):
-        """documents 表 → 旧 health_records 的 payload 列表。"""
+    def _documents_as_rows(self):
         c = self._conn()
         try:
             docs = c.execute('SELECT * FROM documents ORDER BY id').fetchall()
-            out = []
-            for d in docs:
-                if d['legacy_payload']:
-                    try:
-                        obj = json.loads(d['legacy_payload'])
-                        obj['id'] = d['id']
-                        out.append(obj)
-                        continue
-                    except Exception:
-                        pass
-                out.append(self._build_legacy_payload(c, d))
-            return out
+            return [self._doc_to_row(c, d) for d in docs]
         finally:
             c.close()
 
-    @staticmethod
-    def _build_legacy_payload(c, d):
-        """没有 legacy_payload 时，从关系列现场拼一个旧结构出来。"""
+    @classmethod
+    def _doc_to_row(cls, c, d):
+        """把一行 documents 还原成前端使用的扁平结构。"""
+        residual = cls._load_json(d['detail_json'], {})
+        tsd = dict(residual.get('type_specific_data') or {})
         labs = []
         for o in c.execute(
                 'SELECT o.*, i.name AS iname FROM observations o '
@@ -238,54 +283,62 @@ class Store(object):
                 'WHERE o.document_id=? AND o.source=? ORDER BY o.id', (d['id'], 'report')):
             labs.append({'name': o['iname'], 'result': o['value'], 'unit': o['unit'],
                          'reference': o['reference'], 'flag': o['flag'],
-                         'condition': o['condition']})
+                         'condition': o['condition'], 'panel': o['panel']})
         charges = [{'name': ch['name'],
                     'amount': None if ch['amount_cents'] is None else ch['amount_cents'] / 100.0,
                     'category': ch['category'], 'quantity': ch['quantity']}
                    for ch in c.execute(
                        'SELECT * FROM charge_items WHERE document_id=? ORDER BY id', (d['id'],))]
         amount = None if d['amount_cents'] is None else d['amount_cents'] / 100.0
-        return {
+        tsd['lab_results'] = labs
+        tsd['charge_items'] = charges
+        tsd['total_amount'] = amount
+        tsd.setdefault('insurance_payment', None)
+        tsd.setdefault('self_payment', None)
+        row = {
             'id': d['id'], 'person_id': d['person_id'],
             'document_type': d['document_type'], 'title': d['title'],
             'hospital': d['hospital'], 'department': d['department'], 'doctor': d['doctor'],
             'primary_date': d['primary_date'], 'date_status': d['date_status'],
             'amount': amount, 'source_file': d['source_file'],
             'parsed_content': d['parsed_content'], 'key_information': d['key_information'],
-            'owner_id': 'local-user',
-            'type_specific_data': {
-                'lab_results': labs, 'charge_items': charges,
-                'total_amount': amount, 'insurance_payment': None, 'self_payment': None,
-            },
+            'owner_id': d['owner_id'] or 'local-user',
+            'parse_status': d['parse_status'],
+            'xparse_task_id': d['xparse_task_id'], 'xparse_run_id': d['xparse_run_id'],
+            'source_attachments': cls._load_json(d['source_attachments'], []),
+            'manual_edits': cls._load_json(d['manual_edits'], []),
+            'type_specific_data': tsd,
             'created_at': d['created_at'], 'updated_at': d['updated_at'],
         }
+        # detail_json 里除 type_specific_data 之外的残留键（历史字段）原样带回
+        for k, v in residual.items():
+            if k != 'type_specific_data' and k not in row:
+                row[k] = v
+        return row
 
-    def _drugs_as_legacy(self):
+    def _drugs_as_rows(self):
         c = self._conn()
         try:
             rows = c.execute('SELECT * FROM drugs ORDER BY id').fetchall()
             out = []
             for d in rows:
-                if d['legacy_payload']:
-                    try:
-                        obj = json.loads(d['legacy_payload'])
-                        obj['id'] = d['id']
-                        out.append(obj)
-                        continue
-                    except Exception:
-                        pass
-                out.append({'id': d['id'], 'person_id': d['person_id'], 'name': d['name'],
-                            'spec': d['spec'], 'dosage': d['dosage'],
-                            'frequency': d['frequency'], 'start_date': d['start_date'],
-                            'end_date': d['end_date'], 'status': d['status'],
-                            'note': d['note'], 'owner_id': 'local-user',
-                            'created_at': d['created_at'], 'updated_at': d['updated_at']})
+                row = {'id': d['id'], 'person_id': d['person_id'], 'name': d['name'],
+                       'spec': d['spec'], 'dosage': d['dosage'],
+                       'frequency': d['frequency'], 'start_date': d['start_date'],
+                       'end_date': d['end_date'], 'status': d['status'],
+                       'note': d['note'], 'owner_id': 'local-user',
+                       'created_at': d['created_at'], 'updated_at': d['updated_at']}
+                # detail_json 里的残留字段（history / has_conflict / source_attachments …）
+                for k, v in self._load_json(d['detail_json'], {}).items():
+                    if k not in row:
+                        row[k] = v
+                out.append(row)
             return out
         finally:
             c.close()
 
-    def _catalog_as_legacy(self):
-        """指标目录：新架构下由 indicators 表生成，不再是一份手写清单。"""
+    def _indicators_as_rows(self):
+        """指标目录：由 indicators 表生成，不再是一份手写清单。"""
         c = self._conn()
         try:
             rows = c.execute('SELECT * FROM indicators ORDER BY id').fetchall()
@@ -300,32 +353,43 @@ class Store(object):
         finally:
             c.close()
 
-    def read_all(self, table):
-        self._check_table(table)
-        if self._v2_ready():
-            if table == 'health_records':
-                return self._documents_as_legacy()
-            if table == 'drugs':
-                return self._drugs_as_legacy()
-            if table == 'indicator_catalog':
-                return self._catalog_as_legacy()
+    def _manual_records_as_rows(self):
         c = self._conn()
         try:
-            rows = c.execute('SELECT payload FROM "%s" ORDER BY id' % table).fetchall()
-            out = []
-            for r in rows:
-                try:
-                    out.append(json.loads(r['payload']))
-                except Exception:
-                    # 单行损坏不应让整张表读不出来；跳过并继续
-                    continue
-            return out
-        except sqlite3.OperationalError:
-            # 物理表不是 (id, payload) 结构（例如被别的工具动过），按空表处理，
-            # 不让一次 500 卡死整个旧界面。
-            return []
+            rows = c.execute('SELECT * FROM manual_records ORDER BY id').fetchall()
+            return [dict(r) for r in rows]
         finally:
             c.close()
+
+    def read_all(self, table):
+        self._check_table(table)
+        if table == 'documents':
+            return self._documents_as_rows()
+        if table == 'drugs':
+            return self._drugs_as_rows()
+        if table == 'indicators':
+            return self._indicators_as_rows()
+        if table == 'manual_records':
+            return self._manual_records_as_rows()
+        return []
+
+    @staticmethod
+    def _alias_target(c, alias):
+        """别名指向的指标 id；指标已不存在时把这条孤儿别名清掉并返回 None。
+
+        为什么不能直接信 aliases 里的 indicator_id：清空指标目录（例如「导出备份 →
+        清空 → 导入备份」）会重建一批 id 不同的 indicators，旧别名却还指着老 id。
+        照它写观测值，观测值就挂到一个不存在的指标上，详情里做 JOIN 时整条查不出来 ——
+        表现是「刚导入的检验报告在档案里一项都没有」。
+        """
+        row = c.execute('SELECT indicator_id FROM indicator_aliases WHERE alias=?',
+                        (alias,)).fetchone()
+        if not row:
+            return None
+        if c.execute('SELECT 1 FROM indicators WHERE id=?', (row['indicator_id'],)).fetchone():
+            return row['indicator_id']
+        c.execute('DELETE FROM indicator_aliases WHERE alias=?', (alias,))
+        return None
 
     def _indicator_id_for(self, c, raw_name, unit=None, panel=None, value=None):
         """给一个检验项名字找到（或新建）它的指标。新报告进来时会用到。"""
@@ -343,18 +407,16 @@ class Store(object):
                 c.execute('INSERT OR IGNORE INTO indicator_aliases (indicator_id, alias, raw_alias) '
                           'VALUES (?,?,?)', (row['id'], std, raw_name))
                 return row['id']
-        row = c.execute('SELECT indicator_id FROM indicator_aliases WHERE alias=?',
-                        (std,)).fetchone()
-        if row:
-            return row['indicator_id']
+        hit = self._alias_target(c, std)
+        if hit:
+            return hit
         base = I.strip_abbrev(std)
         if base != std:
-            row = c.execute('SELECT indicator_id FROM indicator_aliases WHERE alias=?',
-                            (base,)).fetchone()
-            if row:
+            hit = self._alias_target(c, base)
+            if hit:
                 c.execute('INSERT INTO indicator_aliases (indicator_id, alias, raw_alias) '
-                          'VALUES (?,?,?)', (row['indicator_id'], std, raw_name))
-                return row['indicator_id']
+                          'VALUES (?,?,?)', (hit, std, raw_name))
+                return hit
         # 目录里确实没有：登记成一个新指标，下次再遇到就认得
         cat = I.guess_category(std, panel)
         is_text = 1 if I.guess_is_text(std, [value]) else 0
@@ -371,8 +433,16 @@ class Store(object):
                   'VALUES (?,?,?,1)', (ind_id, std, raw_name))
         return ind_id
 
+    # 从扁平行提升为 documents 真实列的键；不在其中的内容一律进 detail_json（无损往返）。
+    PROMOTED_DOC_KEYS = frozenset((
+        'id', 'person_id', 'document_type', 'title', 'hospital', 'department', 'doctor',
+        'primary_date', 'date_status', 'amount', 'source_file', 'parsed_content',
+        'key_information', 'owner_id', 'parse_status', 'xparse_task_id', 'xparse_run_id',
+        'source_attachments', 'manual_edits', 'type_specific_data', 'created_at', 'updated_at',
+    ))
+
     def _upsert_documents(self, rows):
-        """写档案：拆进 documents 关系列，同时把检验项落成观测值。"""
+        """写档案：拆进 documents 关系列 + detail_json，检验项落成观测值。"""
         n = 0
         with self._lock:
             c = self._conn()
@@ -396,14 +466,25 @@ class Store(object):
                                 u'¥', '').strip()) * 100))
                         except (TypeError, ValueError):
                             cents = None
-                    payload = json.dumps(r, ensure_ascii=False)
+                    # 关系列之外的内容（exams / final_conclusion / structure_notes …）
+                    # 原样存进 detail_json，保证编辑一次也不会丢字段。
+                    residual = {k: v for k, v in r.items() if k not in self.PROMOTED_DOC_KEYS}
+                    residual['type_specific_data'] = tsd
+                    detail_json = json.dumps(residual, ensure_ascii=False)
+                    attaches = r.get('source_attachments')
+                    edits = r.get('manual_edits')
                     rid = r.get('id')
                     fields = (person_id, r.get('document_type') or u'其他', r.get('title'),
                               r.get('hospital'), r.get('department'), r.get('doctor'),
                               r.get('primary_date'), r.get('date_status') or u'已确认',
                               cents, tsd.get('amount_in_words'), r.get('source_file'),
                               r.get('parsed_content'), r.get('key_information'),
-                              payload, r.get('created_at') or now_iso(), now_iso())
+                              r.get('owner_id') or 'local-user',
+                              r.get('parse_status'), r.get('xparse_task_id'),
+                              r.get('xparse_run_id'),
+                              None if attaches is None else json.dumps(attaches, ensure_ascii=False),
+                              None if edits is None else json.dumps(edits, ensure_ascii=False),
+                              detail_json, r.get('created_at') or now_iso(), now_iso())
                     try:
                         rid_int = int(rid) if rid not in (None, '') else None
                     except (TypeError, ValueError):
@@ -414,7 +495,9 @@ class Store(object):
                                   'hospital=?, department=?, doctor=?, primary_date=?, '
                                   'date_status=?, amount_cents=?, amount_in_words=?, '
                                   'source_file=?, parsed_content=?, key_information=?, '
-                                  'legacy_payload=?, created_at=?, updated_at=? WHERE id=?',
+                                  'owner_id=?, parse_status=?, xparse_task_id=?, xparse_run_id=?, '
+                                  'source_attachments=?, manual_edits=?, detail_json=?, '
+                                  'created_at=?, updated_at=? WHERE id=?',
                                   fields + (rid_int,))
                         doc_id = rid_int
                         # 观测值整份重来：报告可能被编辑过，逐条比对反而容易留残
@@ -426,8 +509,9 @@ class Store(object):
                             'INSERT INTO documents (person_id, document_type, title, hospital, '
                             'department, doctor, primary_date, date_status, amount_cents, '
                             'amount_in_words, source_file, parsed_content, key_information, '
-                            'legacy_payload, created_at, updated_at) '
-                            'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', fields)
+                            'owner_id, parse_status, xparse_task_id, xparse_run_id, '
+                            'source_attachments, manual_edits, detail_json, created_at, updated_at) '
+                            'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', fields)
                         doc_id = cur.lastrowid
                         r['id'] = doc_id
 
@@ -437,7 +521,7 @@ class Store(object):
                             if not isinstance(it, dict) or not it.get('name'):
                                 continue
                             ind_id = self._indicator_id_for(
-                                c, it.get('name'), it.get('unit'), it.get('condition'),
+                                c, it.get('name'), it.get('unit'), it.get('panel'),
                                 it.get('result'))
                             if not ind_id:
                                 continue
@@ -451,7 +535,7 @@ class Store(object):
                                 (person_id, ind_id, doc_id, obs_date,
                                  '' if val is None else str(val), I.parse_numeric(val),
                                  I.standardize_unit(it.get('unit')), it.get('reference'),
-                                 it.get('flag'), it.get('condition'), it.get('condition'),
+                                 it.get('flag'), it.get('condition'), it.get('panel'),
                                  'report', now_iso()))
                     for ch in (tsd.get('charge_items') or []):
                         if not isinstance(ch, dict):
@@ -473,7 +557,13 @@ class Store(object):
                 c.close()
         return n
 
-    def _upsert_drugs_v2(self, rows):
+    # 从扁平行提升为 drugs 真实列的键；其余内容进 detail_json。
+    PROMOTED_DRUG_KEYS = frozenset((
+        'id', 'person_id', 'name', 'spec', 'dosage', 'frequency', 'start_date',
+        'end_date', 'status', 'note', 'owner_id', 'created_at', 'updated_at',
+    ))
+
+    def _upsert_drugs(self, rows):
         n = 0
         with self._lock:
             c = self._conn()
@@ -486,10 +576,11 @@ class Store(object):
                         person_id = int(person_id) if person_id not in (None, '') else None
                     except (TypeError, ValueError):
                         person_id = None
-                    payload = json.dumps(r, ensure_ascii=False)
+                    residual = {k: v for k, v in r.items() if k not in self.PROMOTED_DRUG_KEYS}
+                    detail_json = json.dumps(residual, ensure_ascii=False)
                     vals = (person_id, r.get('name'), r.get('spec'), r.get('dosage'),
                             r.get('frequency'), r.get('start_date'), r.get('end_date'),
-                            r.get('status'), r.get('note'), payload,
+                            r.get('status'), r.get('note'), detail_json,
                             r.get('created_at') or now_iso(), now_iso())
                     rid = r.get('id')
                     try:
@@ -500,14 +591,224 @@ class Store(object):
                                              (rid_int,)).fetchone():
                         c.execute('UPDATE drugs SET person_id=?, name=?, spec=?, dosage=?, '
                                   'frequency=?, start_date=?, end_date=?, status=?, note=?, '
-                                  'legacy_payload=?, created_at=?, updated_at=? WHERE id=?',
+                                  'detail_json=?, created_at=?, updated_at=? WHERE id=?',
                                   vals + (rid_int,))
                     else:
                         cur = c.execute(
                             'INSERT INTO drugs (person_id, name, spec, dosage, frequency, '
-                            'start_date, end_date, status, note, legacy_payload, created_at, '
+                            'start_date, end_date, status, note, detail_json, created_at, '
                             'updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', vals)
                         r['id'] = cur.lastrowid
+                    n += 1
+                c.commit()
+            finally:
+                c.close()
+        return n
+
+    def _upsert_indicators(self, rows):
+        """目录一般由归一化生成；这里只承接极少数整行写入（保证 id 稳定）。
+
+        带 id 的行优先按 id 认领自己那一行 —— 备份导出后前端会把 id 一起带回，
+        只有沿用原 id，observations / indicator_aliases 才不会指着重建前的旧编号。
+        """
+        n = 0
+        with self._lock:
+            c = self._conn()
+            try:
+                for r in (rows or []):
+                    if not isinstance(r, dict) or not r.get('key'):
+                        continue
+                    key = r.get('key')
+                    try:
+                        rid = int(r['id']) if r.get('id') not in (None, '') else None
+                    except (TypeError, ValueError):
+                        rid = None
+                    row = None
+                    if rid is not None:
+                        cand = c.execute('SELECT id, key FROM indicators WHERE id=?',
+                                         (rid,)).fetchone()
+                        # id 被别人占了就退回按 key 认领，绝不改别人的名字
+                        if cand and cand['key'] == key:
+                            row = cand
+                    if not row:
+                        row = c.execute('SELECT id FROM indicators WHERE key=?', (key,)).fetchone()
+                    if row:
+                        ind_id = row['id']
+                        c.execute('UPDATE indicators SET name=?, category=?, unit=? WHERE id=?',
+                                  (r.get('name') or key, r.get('category') or r.get('grp'),
+                                   r.get('unit'), ind_id))
+                    else:
+                        cur = c.execute(
+                            'INSERT INTO indicators (id, key, name, category, unit, is_text, '
+                            'created_at) VALUES (?,?,?,?,?,?,?)',
+                            (rid, key, r.get('name') or key, r.get('category') or r.get('grp'),
+                             r.get('unit'), 0, now_iso()))
+                        ind_id = rid if rid is not None else cur.lastrowid
+                    for a in (r.get('aliases') or []):
+                        c.execute('INSERT INTO indicator_aliases '
+                                  '(indicator_id, alias, raw_alias) VALUES (?,?,?)',
+                                  (ind_id, a, a))
+                    r['id'] = ind_id
+                    n += 1
+                c.commit()
+            finally:
+                c.close()
+        return n
+
+    # manual_records 的列顺序（与 schema.sql 一致）。
+    MANUAL_RECORD_COLS = ('person_id', 'indicator_key', 'name', 'record_date', 'type',
+                          'value1', 'value2', 'text_result', 'unit', 'reference', 'flag',
+                          'condition', 'review', 'note', 'source')
+
+    # ------------------------------------------------------- 手填记录的观测值
+    #
+    # 「日常录入」写的是 manual_records，但趋势/关注表的数据源只有 observations。
+    # 不把两者打通，用户自己记的血糖、体重在概览里等于不存在 —— 界面会说
+    # 「还没有关注任何指标 / 暂无结果」，而记录明明在。这里按同一套口径落一份观测值。
+    #
+    # 观测值没有反向引用 manual_records.id，靠「人 + 指标 + 日期 + source='manual'」
+    # 定位同一天同一个指标的点：一天一个点本来就是趋势图的口径，重复录入取最新。
+
+    @staticmethod
+    def _manual_observation_items(r):
+        """把一条手填记录拆成要落库的 (指标名, 值) 列表。"""
+        typ = str(r.get('type') or u'数值')
+        v1, v2 = r.get('value1'), r.get('value2')
+        text = r.get('text_result')
+        name = r.get('name') or ''
+        blank = (None, '')
+
+        if typ == u'双数值':
+            # 血压这类双值：拆成报告里同样用的「收缩压 / 舒张压」两行，
+            # 这样手填与报告提取落在同一个指标上，趋势才连得起来。
+            if r.get('indicator_key') == 'bp' or u'血压' in name:
+                out = []
+                if v1 not in blank:
+                    out.append((u'收缩压', v1))
+                if v2 not in blank:
+                    out.append((u'舒张压', v2))
+                return out
+            return [(name, v1)] if v1 not in blank else []
+
+        if typ == u'定性文字':
+            return [(name, text)] if text not in blank else []
+        if v1 not in blank:
+            return [(name, v1)]
+        return [(name, text)] if text not in blank else []
+
+    def _sync_manual_observations(self, c, r):
+        """按手填记录刷新它的观测值（同人同指标同一天只留一条）。"""
+        rec_date = r.get('record_date')
+        if not rec_date:
+            return 0
+        pid = r.get('person_id')
+        try:
+            pid = int(pid) if pid not in (None, '') else None
+        except (TypeError, ValueError):
+            pid = None
+        items = self._manual_observation_items(r)
+        if not items:
+            return 0
+        import hrw_indicators as I
+        written = 0
+        for iname, val in items:
+            ind_id = self._indicator_id_for(c, iname, r.get('unit'), r.get('condition'), val)
+            if not ind_id:
+                continue
+            c.execute('DELETE FROM observations WHERE source=? AND document_id IS NULL '
+                      'AND person_id IS ? AND indicator_id=? AND obs_date=?',
+                      ('manual', pid, ind_id, rec_date))
+            c.execute('INSERT INTO observations (person_id, indicator_id, document_id, '
+                      'obs_date, value, numeric_value, unit, reference, flag, condition, '
+                      'panel, source, created_at) '
+                      'VALUES (?,?,NULL,?,?,?,?,?,?,?,?,?,?)',
+                      (pid, ind_id, rec_date,
+                       '' if val is None else str(val), I.parse_numeric(val),
+                       I.standardize_unit(r.get('unit')), r.get('reference'), r.get('flag'),
+                       r.get('condition'), None, 'manual', now_iso()))
+            written += 1
+        return written
+
+    def _resolve_indicator_only(self, c, raw_name):
+        """只查不建：给一个检验项名字找到已有指标，找不到返回 None。"""
+        import hrw_indicators as I
+        std = I.standardize(raw_name)
+        if not std:
+            return None
+        hit = self._alias_target(c, std)
+        if hit:
+            return hit
+        base = I.strip_abbrev(std)
+        if base != std:
+            return self._alias_target(c, base)
+        return None
+
+    def _clear_manual_observations(self, c, rows):
+        """删/改手填记录前，先把它们对应的观测值清掉，别留查不到出处的点。
+
+        解析口径必须与 _sync_manual_observations 完全一致（都按项目名归一化，
+        不是按 indicator_key），否则会出现「删了记录、点还留在趋势上」。
+        """
+        for raw in (rows or []):
+            # 调用方可能传 sqlite3.Row（改记录时直接拿的旧行），统一转成 dict
+            r = dict(raw) if raw is not None and not isinstance(raw, dict) else raw
+            if not isinstance(r, dict):
+                continue
+            rec_date = r.get('record_date')
+            if not rec_date:
+                continue
+            pid = r.get('person_id')
+            try:
+                pid = int(pid) if pid not in (None, '') else None
+            except (TypeError, ValueError):
+                pid = None
+            for iname, _v in self._manual_observation_items(r):
+                ind_id = self._resolve_indicator_only(c, iname)
+                if not ind_id:
+                    continue
+                c.execute('DELETE FROM observations WHERE source=? AND document_id IS NULL '
+                          'AND person_id IS ? AND indicator_id=? AND obs_date=?',
+                          ('manual', pid, ind_id, rec_date))
+
+    def _upsert_manual_records(self, rows):
+        n = 0
+        with self._lock:
+            c = self._conn()
+            try:
+                cols = ','.join(self.MANUAL_RECORD_COLS) + ',created_at,updated_at'
+                marks = ','.join('?' * (len(self.MANUAL_RECORD_COLS) + 2))
+                sets = ','.join('%s=?' % k for k in self.MANUAL_RECORD_COLS) + \
+                    ',created_at=?,updated_at=?'
+                for r in (rows or []):
+                    if not isinstance(r, dict):
+                        continue
+                    pid = r.get('person_id')
+                    try:
+                        pid = int(pid) if pid not in (None, '') else None
+                    except (TypeError, ValueError):
+                        pid = None
+                    vals = [pid] + [r.get(k) for k in self.MANUAL_RECORD_COLS[1:]]
+                    vals.append(r.get('created_at') or now_iso())
+                    vals.append(now_iso())
+                    rid = r.get('id')
+                    try:
+                        rid_int = int(rid) if rid not in (None, '') else None
+                    except (TypeError, ValueError):
+                        rid_int = None
+                    if rid_int and c.execute('SELECT id FROM manual_records WHERE id=?',
+                                             (rid_int,)).fetchone():
+                        old = c.execute('SELECT * FROM manual_records WHERE id=?',
+                                        (rid_int,)).fetchone()
+                        c.execute('UPDATE manual_records SET %s WHERE id=?' % sets,
+                                  tuple(vals) + (rid_int,))
+                        # 改了日期或数值：旧点位先按旧写法清掉，再按新写法重建
+                        self._clear_manual_observations(c, [old])
+                    else:
+                        cur = c.execute('INSERT INTO manual_records (%s) VALUES (%s)'
+                                        % (cols, marks), tuple(vals))
+                        r['id'] = cur.lastrowid
+                    r['person_id'] = pid
+                    self._sync_manual_observations(c, r)
                     n += 1
                 c.commit()
             finally:
@@ -517,38 +818,15 @@ class Store(object):
     def upsert(self, table, rows):
         """按 id 覆盖写；没有 id 的行由本层分配自增主键。返回写入条数。"""
         self._check_table(table)
-        if self._v2_ready():
-            if table == 'health_records':
-                return self._upsert_documents(rows)
-            if table == 'drugs':
-                return self._upsert_drugs_v2(rows)
-        n = 0
-        with self._lock:
-            c = self._conn()
-            try:
-                maxid = self._next_id(c, table)
-                for r in (rows or []):
-                    if not isinstance(r, dict):
-                        continue
-                    rid = r.get('id')
-                    if rid is None or str(rid).strip() == '':
-                        maxid += 1
-                        rid = maxid
-                        r = dict(r)
-                        r['id'] = rid
-                    try:
-                        rid_int = int(rid)
-                    except (TypeError, ValueError):
-                        raise StoreError('主键必须可转为整数，收到：%r' % (rid,))
-                    c.execute(
-                        'INSERT INTO "%s" (id, payload) VALUES (?, ?) '
-                        'ON CONFLICT(id) DO UPDATE SET payload=excluded.payload' % table,
-                        (rid_int, json.dumps(r, ensure_ascii=False)))
-                    n += 1
-                c.commit()
-            finally:
-                c.close()
-        return n
+        if table == 'documents':
+            return self._upsert_documents(rows)
+        if table == 'drugs':
+            return self._upsert_drugs(rows)
+        if table == 'indicators':
+            return self._upsert_indicators(rows)
+        if table == 'manual_records':
+            return self._upsert_manual_records(rows)
+        return 0
 
     def delete(self, table, ids):
         self._check_table(table)
@@ -560,34 +838,20 @@ class Store(object):
                 continue
         if not key:
             return 0
-        # 删档案要连观测值一起删，否则会留下查不到主人的孤儿指标点
-        if self._v2_ready() and table == 'health_records':
-            with self._lock:
-                c = self._conn()
-                try:
-                    marks = ','.join('?' * len(key))
-                    c.execute('DELETE FROM observations WHERE document_id IN (%s)' % marks, key)
-                    c.execute('DELETE FROM charge_items WHERE document_id IN (%s)' % marks, key)
-                    cur = c.execute('DELETE FROM documents WHERE id IN (%s)' % marks, key)
-                    c.commit()
-                    return cur.rowcount or 0
-                finally:
-                    c.close()
-        if self._v2_ready() and table == 'drugs':
-            with self._lock:
-                c = self._conn()
-                try:
-                    marks = ','.join('?' * len(key))
-                    cur = c.execute('DELETE FROM drugs WHERE id IN (%s)' % marks, key)
-                    c.commit()
-                    return cur.rowcount or 0
-                finally:
-                    c.close()
+        marks = ','.join('?' * len(key))
         with self._lock:
             c = self._conn()
             try:
-                q = 'DELETE FROM "%s" WHERE id IN (%s)' % (table, ','.join('?' * len(key)))
-                cur = c.execute(q, key)
+                # 删档案要连观测值一起删，否则会留下查不到主人的孤儿指标点
+                if table == 'documents':
+                    c.execute('DELETE FROM observations WHERE document_id IN (%s)' % marks, key)
+                    c.execute('DELETE FROM charge_items WHERE document_id IN (%s)' % marks, key)
+                # 删手填记录同理：它名下的观测值还在的话，趋势上会留一个「没记录的点」
+                if table == 'manual_records':
+                    doomed = c.execute('SELECT * FROM manual_records WHERE id IN (%s)' % marks,
+                                       key).fetchall()
+                    self._clear_manual_observations(c, doomed)
+                cur = c.execute('DELETE FROM "%s" WHERE id IN (%s)' % (table, marks), key)
                 c.commit()
                 return cur.rowcount or 0
             finally:
@@ -609,9 +873,9 @@ class Store(object):
         return out
 
     def referenced_file_paths(self):
-        """四张表当前仍在引用的附件路径集合（档案与药品共用一个附件池）。"""
+        """档案与药品当前仍在引用的附件路径集合（两者共用一个附件池）。"""
         seen = set()
-        for t in TABLES:
+        for t in ('documents', 'drugs'):
             for row in self.read_all(t):
                 seen.update(self.attach_paths(row))
         return seen
@@ -693,31 +957,42 @@ class Store(object):
 
     def clear_table(self, table):
         self._check_table(table)
-        if self._v2_ready() and table == 'health_records':
-            with self._lock:
-                c = self._conn()
-                try:
-                    c.execute('DELETE FROM observations')
-                    c.execute('DELETE FROM charge_items')
-                    c.execute('DELETE FROM documents')
-                    c.commit()
-                finally:
-                    c.close()
-            return
-        if self._v2_ready() and table == 'drugs':
-            with self._lock:
-                c = self._conn()
-                try:
-                    c.execute('DELETE FROM drugs')
-                    c.commit()
-                finally:
-                    c.close()
-            return
         with self._lock:
             c = self._conn()
             try:
+                # 档案的观测值 / 收费明细跟着一起清，避免留下孤儿指标点
+                if table == 'documents':
+                    c.execute('DELETE FROM observations')
+                    c.execute('DELETE FROM charge_items')
+                # 目录里只删 indicators 会留下一堆指向已消失 id 的别名：
+                # 之后新报告按别名找指标，拿到的是不存在的 id，检验项在详情里就整张消失。
+                if table == 'indicators':
+                    c.execute('DELETE FROM indicator_aliases')
+                    c.execute('DELETE FROM watched_indicators')
+                # 手填记录的观测值不分表存，清 manual_records 时按来源一并清掉
+                if table == 'manual_records':
+                    c.execute("DELETE FROM observations WHERE source='manual' AND document_id IS NULL")
                 c.execute('DELETE FROM "%s"' % table)
                 c.commit()
+            finally:
+                c.close()
+
+    def purge_orphan_aliases(self):
+        """清掉指向已不存在的指标的别名（清空目录 / 回灌备份后的历史残留）。
+
+        启动时顺手跑一次：不修的话，下一次导入的检验项会挂到不存在的指标上，
+        在档案详情里表现为「检验结果一项都没有」——数据还在，只是 JOIN 不出来。
+        """
+        with self._lock:
+            c = self._conn()
+            try:
+                cur = c.execute(
+                    'DELETE FROM indicator_aliases WHERE indicator_id NOT IN '
+                    '(SELECT id FROM indicators)')
+                c.commit()
+                return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+            except Exception:
+                return 0
             finally:
                 c.close()
 
@@ -725,12 +1000,9 @@ class Store(object):
         with self._lock:
             c = self._conn()
             try:
-                for t in TABLES:
+                for t in ('observations', 'charge_items', 'documents', 'drugs',
+                          'manual_records', 'watched_indicators'):
                     c.execute('DELETE FROM "%s"' % t)
-                if self._v2_ready():
-                    for t in ('observations', 'charge_items', 'documents', 'drugs',
-                              'watched_indicators'):
-                        c.execute('DELETE FROM "%s"' % t)
                 c.commit()
             finally:
                 c.close()
@@ -985,6 +1257,22 @@ class Store(object):
                 'created_at': p.get('created_at') or now_iso(),
             })
         self.set_meta('persons', out)
+        # 名单之外的关注关系必须一起清掉。删成员时留下 watched_indicators 行，
+        # 一旦该 id 被后来的新成员复用（next_person_id 取 max+1，删掉最大号再加就会撞上），
+        # 新成员会「莫名其妙已经关注了一堆指标」——曾经踩过这个坑，这里堵死。
+        keep = [int(p['id']) for p in out]
+        with self._lock:
+            c = self._conn()
+            try:
+                if keep:
+                    ph = ','.join(['?'] * len(keep))
+                    c.execute('DELETE FROM watched_indicators WHERE person_id NOT IN (%s)' % ph,
+                              keep)
+                else:
+                    c.execute('DELETE FROM watched_indicators')
+                c.commit()
+            finally:
+                c.close()
         return out
 
     def next_person_id(self):
@@ -1029,71 +1317,26 @@ class Store(object):
             raise StoreError('归属目标不在成员名单里（id=%s）' % pid)
         return pid
 
-    def _resync_legacy_person(self, c, doc_id, pid):
-        """改了归属之后，把 legacy_payload 里的 person_id 也同步。
-
-        兼容层是优先读 legacy_payload 的，不同步的话会出现「关系列已经改了、
-        页面读出来还是旧归属」这种对不上的情况。
-        """
-        row = c.execute('SELECT legacy_payload FROM documents WHERE id=?', (doc_id,)).fetchone()
-        if not row or not row['legacy_payload']:
-            return
-        try:
-            obj = json.loads(row['legacy_payload'])
-        except Exception:
-            return
-        if not isinstance(obj, dict):
-            return
-        obj['person_id'] = pid
-        c.execute('UPDATE documents SET legacy_payload=? WHERE id=?',
-                  (json.dumps(obj, ensure_ascii=False), doc_id))
-
     def assign_person(self, table, person_id, only_unassigned=True):
         """把某张表的记录批量归属到指定成员。默认只动尚未归属的（不可逆，调用前先打快照）。
         返回实际修改条数。"""
         self._check_table(table)
         pid = self.check_assign_target(person_id)
-        if self._v2_ready() and table == 'health_records':
-            n = 0
-            with self._lock:
-                c = self._conn()
-                try:
-                    rows = c.execute('SELECT id, person_id FROM documents').fetchall()
-                    for r in rows:
-                        old = r['person_id']
-                        if only_unassigned and old is not None and old != '':
-                            continue
-                        if old == pid:
-                            continue
-                        c.execute('UPDATE documents SET person_id=? WHERE id=?', (pid, r['id']))
-                        c.execute('UPDATE observations SET person_id=? WHERE document_id=?',
-                                  (pid, r['id']))
-                        self._resync_legacy_person(c, r['id'], pid)
-                        n += 1
-                    c.commit()
-                finally:
-                    c.close()
-            return n
         n = 0
         with self._lock:
             c = self._conn()
             try:
-                rows = c.execute('SELECT id, payload FROM "%s"' % table).fetchall()
+                rows = c.execute('SELECT id, person_id FROM "%s"' % table).fetchall()
                 for r in rows:
-                    try:
-                        obj = json.loads(r['payload'])
-                    except Exception:
-                        continue
-                    if not isinstance(obj, dict):
-                        continue
-                    old = obj.get('person_id')
+                    old = r['person_id']
                     if only_unassigned and old is not None and old != '':
                         continue
                     if old == pid:
                         continue
-                    obj['person_id'] = pid
-                    c.execute('UPDATE "%s" SET payload=? WHERE id=?' % table,
-                              (json.dumps(obj, ensure_ascii=False), r['id']))
+                    c.execute('UPDATE "%s" SET person_id=? WHERE id=?' % table, (pid, r['id']))
+                    if table == 'documents':
+                        c.execute('UPDATE observations SET person_id=? WHERE document_id=?',
+                                  (pid, r['id']))
                     n += 1
                 c.commit()
             finally:
@@ -1106,43 +1349,13 @@ class Store(object):
         返回实际修改条数。"""
         self._check_table(table)
         pid = self.check_person_id(person_id)
-        if self._v2_ready() and table == 'health_records':
-            n = 0
-            with self._lock:
-                c = self._conn()
-                try:
-                    rows = c.execute('SELECT id, person_id FROM documents').fetchall()
-                    for r in rows:
-                        old = r['person_id']
-                        if old is None or old == '':
-                            continue
-                        try:
-                            if int(old) != pid:
-                                continue
-                        except (TypeError, ValueError):
-                            continue
-                        c.execute('UPDATE documents SET person_id=NULL WHERE id=?', (r['id'],))
-                        c.execute('UPDATE observations SET person_id=NULL WHERE document_id=?',
-                                  (r['id'],))
-                        self._resync_legacy_person(c, r['id'], None)
-                        n += 1
-                    c.commit()
-                finally:
-                    c.close()
-            return n
         n = 0
         with self._lock:
             c = self._conn()
             try:
-                rows = c.execute('SELECT id, payload FROM "%s"' % table).fetchall()
+                rows = c.execute('SELECT id, person_id FROM "%s"' % table).fetchall()
                 for r in rows:
-                    try:
-                        obj = json.loads(r['payload'])
-                    except Exception:
-                        continue
-                    if not isinstance(obj, dict):
-                        continue
-                    old = obj.get('person_id')
+                    old = r['person_id']
                     if old is None or old == '':
                         continue
                     try:
@@ -1150,9 +1363,10 @@ class Store(object):
                             continue
                     except (TypeError, ValueError):
                         continue
-                    obj['person_id'] = None
-                    c.execute('UPDATE "%s" SET payload=? WHERE id=?' % table,
-                              (json.dumps(obj, ensure_ascii=False), r['id']))
+                    c.execute('UPDATE "%s" SET person_id=NULL WHERE id=?' % table, (r['id'],))
+                    if table == 'documents':
+                        c.execute('UPDATE observations SET person_id=NULL WHERE document_id=?',
+                                  (r['id'],))
                     n += 1
                 c.commit()
             finally:
@@ -1160,11 +1374,11 @@ class Store(object):
         return n
 
     def person_stats(self):
-        """统计每个成员名下有多少条档案（health_records）。
+        """统计每个成员名下有多少条档案（documents）。
         未归属的归到固定键 'none' —— 不能用 None 当键，它经 JSON 序列化
         会变成 "null" 字符串，前端按 none 取就永远取到 0。"""
         out = {}
-        for r in self.read_all('health_records'):
+        for r in self.read_all('documents'):
             pid = r.get('person_id')
             if pid is None or pid == '':
                 key = 'none'
@@ -1338,6 +1552,12 @@ class Store(object):
             'db_path': self.db_path,
             'db_bytes': db_bytes,
             'counts': counts,
+            # 「用户数据」条数：档案 / 药品 / 手填记录。
+            # 指标目录是归一化出来的派生知识（清空数据不会清它），不算用户数据 ——
+            # 判断「磁盘上还是空的吗」必须用它，否则清空后指标行还在，
+            # 旧数据迁移的门禁会永远为假，浏览器里的老档案再也搬不过来。
+            'records': (counts.get('documents', 0) + counts.get('drugs', 0)
+                        + counts.get('manual_records', 0)),
             'files': stats['files'],
             'file_bytes': stats['fileBytes'],
             'snapshots': len(self.snapshot_list()),
@@ -1349,10 +1569,14 @@ class Store(object):
         self.clear_tables()
         self.clear_files()
         with self._lock:
+            # 日志用「清空内容」而不是删掉文件：删文件在受限环境里可能被拦，
+            # 一旦抛出的不是 OSError（如 SystemExit），会把整个请求线程带走，
+            # 前端只看到连接被断开。清空内容同样达到「干净开始」的效果。
             if os.path.exists(self.log_path):
                 try:
-                    os.remove(self.log_path)
-                except OSError:
+                    with open(self.log_path, 'w', encoding='utf-8'):
+                        pass
+                except (OSError, SystemExit):
                     pass
 
     def reset_files_dir(self):
@@ -1571,14 +1795,22 @@ class Store(object):
     @staticmethod
     def _range_start(range_key):
         """时间范围过滤的起点。默认「全部」——旧版默认近 12 个月，
-        结果多数指标只剩一个点，画不出线，看着像坏了。"""
+        结果多数指标只剩一个点，画不出线，看着像坏了。
+
+        容忍两种写法：'12m' 与裸数字 '12'（都表示近 12 个月）。早前前端发的是
+        '12'，这里只认 '12m'，于是「近 12 个月」被当成「全部」静默空转 —— 两种
+        写法都收下，避免同一个含义在两端各写一遍。
+        """
         if not range_key or range_key == 'all':
             return None
-        months = {'12m': 12, '6m': 6, '3y': 36, '5y': 60}.get(range_key)
-        if not months:
-            return None
-        dt = datetime.date.today() - datetime.timedelta(days=int(months * 30.44))
-        return dt.isoformat()
+        key = str(range_key).strip().lower()
+        m = re.fullmatch(r'(\d+)\s*([my])', key)
+        if m:
+            n = int(m.group(1))
+            days = n * 30.44 if m.group(2) == 'm' else n * 365
+            dt = datetime.date.today() - datetime.timedelta(days=int(days))
+            return dt.isoformat()
+        return None
 
     def trend(self, person_id, indicator_id, range_key='all'):
         """一个指标的完整趋势数据。

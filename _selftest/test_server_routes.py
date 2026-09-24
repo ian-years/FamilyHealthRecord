@@ -145,13 +145,13 @@ def main():
 
         print('\n=== 2. 造一条未归属的档案，供后面计数 ===')
         code, j = call(op, port, '/api/db/put',
-                       {'table': 'health_records',
+                       {'table': 'documents',
                         'rows': [{'title': '路由用例档案', 'document_type': '体检报告',
                                   'primary_date': '2025-01-01', 'date_status': '已确认'}]})
         check('写入 1 条', j.get('written') == 1, json.dumps(j, ensure_ascii=False)[:120])
         legal = S.Store(HERE, data_dir=tmp).persons()[0]['id']
 
-        def assign(pid, table='health_records'):
+        def assign(pid, table='documents'):
             return call(op, port, '/api/persons/assign',
                         {'table': table, 'person_id': pid})
 
@@ -169,7 +169,7 @@ def main():
                   j.get('ok') is False and kw in reason, reason[:90])
             check('%s → 一份快照都没写' % label, not person_snaps(tmp),
                   '实际存在：%s' % person_snaps(tmp))
-        cleared = call(op, port, '/api/persons/clear', {'table': 'health_records'})
+        cleared = call(op, port, '/api/persons/clear', {'table': 'documents'})
         check('解除归属但没带 id → 报错', cleared[1].get('ok') is False,
               json.dumps(cleared[1], ensure_ascii=False)[:90])
         check('解除归属但没带 id → 一份快照都没写', not person_snaps(tmp),
@@ -185,7 +185,7 @@ def main():
               len(snaps(tmp, 'before-person-assign')) == 1, snaps(tmp, 'before-person-assign'))
         check('档案上的归属真的改了（回读）',
               [r.get('person_id') for r in
-               call(op, port, '/api/db/rows?table=health_records')[1]['rows']] == [legal], '')
+               call(op, port, '/api/db/rows?table=documents')[1]['rows']] == [legal], '')
         n_before = len(person_snaps(tmp))
         assign(0)
         check('合法之后再吃一次非法请求，快照数不涨（%d → 仍 %d）' % (n_before, n_before),
@@ -208,6 +208,50 @@ def main():
                 check('id=%r：路由 reason 与数据层抛错文本逐字相同' % pid,
                       msg is not None and assign(pid)[1].get('reason') == msg,
                       '%r vs %r' % (msg, assign(pid)[1].get('reason')))
+
+        print('\n=== 6. 写入后必须回传服务端分配的真实 id ===')
+        # 自增主键由 SQLite 分配。路由不回传 id，前端就只能自己猜：
+        # 插入后拿猜出来的 id 去开详情必然「找不到这份档案」；更糟的是这个
+        # 假 id 一旦撞上已存在的行，服务端把它当成「更新这条」，会静默改写别人的记录。
+        # 所以这里把契约钉死：put 必须回传每行的真实 id，且回读得到同一行。
+        code, j = call(op, port, '/api/db/put',
+                       {'table': 'documents',
+                        'rows': [{'title': 'id 契约用例', 'document_type': '检验报告',
+                                  'primary_date': '2025-02-02', 'date_status': '已确认'}]})
+        ids = j.get('ids') or []
+        check('put 回传 1 个 id', len(ids) == 1 and ids[0] is not None, json.dumps(j)[:120])
+        rows = call(op, port, '/api/db/rows?table=documents')[1]['rows']
+        hit = [r for r in rows if r.get('title') == 'id 契约用例']
+        check('回传的 id 就是落库那一行的真实 id',
+              len(hit) == 1 and hit[0].get('id') == ids[0],
+              'ids=%r 落库=%r' % (ids, [r.get('id') for r in hit]))
+
+        # 自增序列可能因为此前的删除而走在最大 id 前面 —— 前端照着「最大 id + 1」
+        # 猜出来的值就会与实际分配值错开。这里删掉刚写的那行再写一行，
+        # 模拟同一个场景，要求仍然回传真实 id。
+        call(op, port, '/api/db/delete', {'table': 'documents', 'ids': ids})
+        code, j2 = call(op, port, '/api/db/put',
+                        {'table': 'documents',
+                         'rows': [{'title': 'id 契约用例·删后重写', 'document_type': '检验报告',
+                                   'primary_date': '2025-02-03', 'date_status': '已确认'}]})
+        ids2 = j2.get('ids') or []
+        rows2 = call(op, port, '/api/db/rows?table=documents')[1]['rows']
+        hit2 = [r for r in rows2 if r.get('title') == 'id 契约用例·删后重写']
+        check('删掉最大 id 之后再写：回传的仍是真实 id（不是「最大 id + 1」）',
+              len(hit2) == 1 and hit2[0].get('id') == ids2[0],
+              'ids=%r 落库=%r' % (ids2, [r.get('id') for r in hit2]))
+
+        # 带一个不存在的 id 写入时，服务端应把它当新增（而不是出错或写空）
+        code, j3 = call(op, port, '/api/db/put',
+                        {'table': 'documents',
+                         'rows': [{'id': 99999999, 'title': '幽灵 id 用例',
+                                   'document_type': '检验报告', 'primary_date': '2025-02-04',
+                                   'date_status': '已确认'}]})
+        ids3 = j3.get('ids') or []
+        rows3 = call(op, port, '/api/db/rows?table=documents')[1]['rows']
+        check('带名单外的 id 写入 → 当作新增，并回传真实 id',
+              len([r for r in rows3 if r.get('title') == '幽灵 id 用例']) == 1
+              and ids3 and ids3[0] != 99999999, json.dumps(j3)[:120])
 
         return finish(proc, tmp)
     finally:

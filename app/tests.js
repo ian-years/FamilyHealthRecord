@@ -1307,7 +1307,7 @@
   /* ================= 10.6 按人的关注指标（定义共享，关注按人） ================= */
   /*
     指标定义（名称/单位/别名/换算规则）全家共用一份，只有「是否关注」按人存：
-    indicator_catalog 每行带 followers: [person_id…]。未指定归属用 0 作键，
+    indicators 每行带 followers: [person_id…]。未指定归属用 0 作键，
     不用 null —— 对象键会被 JSON 序列化成 "null" 字符串（本项目栽过一次）。
     pid 传 null 或 'all' 表示「全部」视图，沿用行上的全局 followed。
   */
@@ -1476,12 +1476,12 @@
     test('本地数据层：主键跨已有数据继续自增，不从 1 重来', function () {
       eq(P.maxId([{ id: 3 }, { id: 17 }, { id: 'x' }]), 17);
       eq(P.maxId([]), 0);
-      var added = P.prepareInsert('health_records', [{ id: 5 }], [{ document_type: '检验报告' }, { document_type: '检查报告' }]);
+      var added = P.prepareInsert('documents', [{ id: 5 }], [{ document_type: '检验报告' }, { document_type: '检查报告' }]);
       eq(added.map(function (r) { return r.id; }), [6, 7]);
     });
 
     test('本地数据层：写入补 NOT NULL 默认值，且不覆盖调用方给的值', function () {
-      var added = P.prepareInsert('health_records', [], [
+      var added = P.prepareInsert('documents', [], [
         { document_type: '检验报告' },
         { document_type: '检验报告', date_status: '待确认', source_attachments: [{ name: 'a.png' }], type_specific_data: { k: 1 }, parse_status: '已归档' }
       ], '2026-01-01T00:00:00.000Z');
@@ -1524,28 +1524,28 @@
     });
 
     test('本地数据层：备份载荷结构与四表计数正确', function () {
-      var b = P.buildBackup({ health_records: [{ id: 1 }, { id: 2 }], drugs: [{ id: 1 }] }, [{ path: 'p', dataBase64: 'AA==' }], '2026-03-03T00:00:00.000Z');
-      eq(b.schema, 'health-records-local-backup/v1');
-      eq(b.counts.health_records, 2);
+      var b = P.buildBackup({ documents: [{ id: 1 }, { id: 2 }], drugs: [{ id: 1 }] }, [{ path: 'p', dataBase64: 'AA==' }], '2026-03-03T00:00:00.000Z');
+      eq(b.schema, 'health-records-local-backup/v2');
+      eq(b.counts.documents, 2);
       eq(b.counts.drugs, 1);
-      eq(b.counts.indicator_catalog, 0);
-      eq(b.counts.daily_indicator_records, 0);
+      eq(b.counts.indicators, 0);
+      eq(b.counts.manual_records, 0);
       eq(b.file_count, 1);
-      eq(b.tables.daily_indicator_records, []);
+      eq(b.tables.manual_records, []);
     });
 
     test('本地数据层：备份校验放行合法文件、拦下格式不符的文件', function () {
-      ok(P.validateBackup(P.buildBackup({ health_records: [{ id: 1, document_type: '检验报告' }] }, [])).ok, '合法备份应通过');
+      ok(P.validateBackup(P.buildBackup({ documents: [{ id: 1, document_type: '检验报告' }] }, [])).ok, '合法备份应通过');
       ok(!P.validateBackup({ hello: 'world' }).ok, '缺少 schema 的文件必须被拒');
       ok(!P.validateBackup(null).ok, 'null 必须被拒');
       ok(!P.validateBackup([1, 2, 3]).ok, '数组必须被拒');
     });
 
     test('本地数据层：附件缺路径或缺数据时整份备份被拒', function () {
-      var b = P.buildBackup({ health_records: [] }, [{ path: 'a.png', dataBase64: 'AA==' }]);
+      var b = P.buildBackup({ documents: [] }, [{ path: 'a.png', dataBase64: 'AA==' }]);
       b.files.push({ name: '无路径.png', dataBase64: 'AA==' });
       ok(!P.validateBackup(b).ok, '缺 path 的附件必须让整份备份被拒');
-      ok(!P.validateBackup(P.buildBackup({ health_records: [] }, [{ path: 'b.png' }])).ok, '缺数据的附件必须让整份备份被拒');
+      ok(!P.validateBackup(P.buildBackup({ documents: [] }, [{ path: 'b.png' }])).ok, '缺数据的附件必须让整份备份被拒');
     });
 
     test('本地数据层：表字段不是数组时被拒，并指明是哪张表', function () {
@@ -1569,7 +1569,7 @@
     testAsync('本地门面：insert().select() 返回带主键的记录数组', async function () {
       var mem = DB.memoryDriver();
       var facade = DB.createLocal({ driver: mem });
-      var res = await facade.database.from('health_records').insert([
+      var res = await facade.database.from('documents').insert([
         { document_type: '检验报告', primary_date: '2025-01-01', title: '甲' },
         { document_type: '检验报告', primary_date: '2025-02-01', title: '乙' }
       ]).select();
@@ -1578,29 +1578,29 @@
       eq(res.data.map(function (r) { return r.id; }), [1, 2]);
       eq(res.data[0].date_status, '已确认');
 
-      var page = await facade.database.from('health_records').select('*')
+      var page = await facade.database.from('documents').select('*')
         .order('primary_date', { ascending: false }).range(0, 0);
       eq(page.data.length, 1);
       eq(page.data[0].primary_date, '2025-02-01');
-      var page2 = await facade.database.from('health_records').select('*')
+      var page2 = await facade.database.from('documents').select('*')
         .order('primary_date', { ascending: false }).range(1, 1);
       eq(page2.data[0].primary_date, '2025-01-01');
     });
 
     testAsync('本地门面：update().eq().select() 只改命中行且已落库', async function () {
       var facade = DB.createLocal({ driver: DB.memoryDriver() });
-      await facade.database.from('health_records').insert([
+      await facade.database.from('documents').insert([
         { document_type: '检验报告', title: '甲' },
         { document_type: '检验报告', title: '乙' }
       ]).select();
-      var res = await facade.database.from('health_records').update({ title: '乙改' }).eq('id', 2).select();
+      var res = await facade.database.from('documents').update({ title: '乙改' }).eq('id', 2).select();
       eq(res.data.length, 1);
       eq(res.data[0].title, '乙改');
-      var other = await facade.database.from('health_records').select('*').eq('id', 1);
+      var other = await facade.database.from('documents').select('*').eq('id', 1);
       eq(other.data[0].title, '甲', '未命中的行不得被改动');
-      var back = await facade.database.from('health_records').select('*').eq('id', 2);
+      var back = await facade.database.from('documents').select('*').eq('id', 2);
       eq(back.data[0].title, '乙改', '改动必须已落库');
-      var none = await facade.database.from('health_records').update({ title: 'x' }).eq('id', 999).select();
+      var none = await facade.database.from('documents').update({ title: 'x' }).eq('id', 999).select();
       ok(!none.error, '命中 0 行不是错误');
       eq(none.data, []);
     });
@@ -1630,7 +1630,7 @@
     testAsync('删除档案：内存驱动不支持时如实说不支持，不假装成功', async function () {
       var facade = DB.createLocal({ driver: DB.memoryDriver() });
       eq(facade.hasDeleteRecords(), false, '能力探测必须是假，界面据此决定给不给删除按钮');
-      var res = await facade.deleteRecords('health_records', [1]);
+      var res = await facade.deleteRecords('documents', [1]);
       eq(res.ok, false, '不支持绝不能返回 ok:true');
       ok(/不支持/.test(res.reason || ''), '要说清是驱动不支持，而不是泛泛的「删除失败」：' + res.reason);
     });
@@ -1648,7 +1648,7 @@
         }
       } });
       eq(facade.hasDeleteRecords(), true);
-      var res = await facade.deleteRecords('health_records', [7, 8]);
+      var res = await facade.deleteRecords('documents', [7, 8]);
       eq(got.ids.join(','), '7,8', 'id 必须原样送到驱动，不能被门面改写或丢掉');
       eq(res.ok, true);
       eq(res.deleted, 2);
@@ -1663,7 +1663,7 @@
           return Promise.reject(new Error('删除前的快照没能写入，已中止删除，数据未改动'));
         }
       } });
-      var res = await facade.deleteRecords('health_records', [1]);
+      var res = await facade.deleteRecords('documents', [1]);
       eq(res.ok, false);
       ok(/快照/.test(res.reason || ''), '服务端原话要带到界面上：' + res.reason);
     });
@@ -1682,10 +1682,10 @@
 
     testAsync('本地门面：清空后四表与附件都归零，读取不再返回旧数据', async function () {
       var facade = DB.createLocal({ driver: DB.memoryDriver() });
-      await facade.database.from('health_records').insert({ document_type: '检验报告' }).select();
+      await facade.database.from('documents').insert({ document_type: '检验报告' }).select();
       await facade.storage.upload('attachments/a.png', { name: 'a.png', size: 10 }, {});
       await facade.clearAll();
-      eq((await facade.database.from('health_records').select('*')).data, []);
+      eq((await facade.database.from('documents').select('*')).data, []);
       eq((await facade.stats()).files, 0);
     });
 

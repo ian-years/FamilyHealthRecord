@@ -64,7 +64,7 @@ store = S.Store(HERE, data_dir=TMP)
 def add(table, atts, extra=None):
     row = {'id': None, 'title': table, 'source_attachments': atts}
     row['person_id'] = 1
-    if table == 'health_records':
+    if table == 'documents':
         row['document_type'] = '体检报告'
     if extra:
         row.update(extra)
@@ -104,41 +104,41 @@ def registered(path):
 A, B, C = 'attachments/a.pdf', 'attachments/b.pdf', 'attachments/c.pdf'
 D = 'attachments/d.pdf'
 
-r1 = add('health_records', [att(A)])
-r2 = add('health_records', [att(B)])
-r3 = add('health_records', [att(B), att(C)])
+r1 = add('documents', [att(A)])
+r2 = add('documents', [att(B)])
+r3 = add('documents', [att(B), att(C)])
 _d = att(D)
 os.remove(os.path.join(store.files_dir, _d['disk_name']))  # 抹掉文件，留下登记
-r4 = add('health_records', [_d])
+r4 = add('documents', [_d])
 d1 = add('drugs', [att(C)], extra={'status': '正在服用', 'drug_name': '虚构药'})
 
 print('=== 夹具就位 ===')
-check('四条档案 + 一枚药品', store.counts()['health_records'] == 4
+check('四条档案 + 一枚药品', store.counts()['documents'] == 4
       and store.counts()['drugs'] == 1, str(store.counts()))
 check('四个附件都已落盘', all(on_disk(p) for p in (A, B, C)),
       '%s %s %s' % (on_disk(A), on_disk(B), on_disk(C)))
 
 # ---------------------------------------------------------------- 1. 删掉独占附件的档案
 print('\n=== 1. 删除只被自己引用的附件 ===')
-res = store.delete_records('health_records', [r1])
+res = store.delete_records('documents', [r1])
 check('返回里报出删了几行', res['deleted'] == 1, str(res.get('deleted')))
-check('该行真的不在了', r1 not in [x['id'] for x in store.read_all('health_records')])
-check('别的档案没被牵连', len(store.read_all('health_records')) == 3)
+check('该行真的不在了', r1 not in [x['id'] for x in store.read_all('documents')])
+check('别的档案没被牵连', len(store.read_all('documents')) == 3)
 check('独占附件的磁盘文件被删掉', not on_disk(A))
 check('独占附件的 files 登记也被清掉', not registered(A))
 check('返回里报出清理了哪个附件', res['files_removed'] == [A], str(res.get('files_removed')))
 
 # ---------------------------------------------------------------- 2. 共享附件必须留着
 print('\n=== 2. 被别处引用的附件不能删 ===')
-store.delete_records('health_records', [r2])
-check('r2 删掉了', r2 not in [x['id'] for x in store.read_all('health_records')])
+store.delete_records('documents', [r2])
+check('r2 删掉了', r2 not in [x['id'] for x in store.read_all('documents')])
 check('b.pdf 仍被 r3 引用，文件留着', on_disk(B))
 check('b.pdf 的 files 登记留着', registered(B))
 
 # ---------------------------------------------------------------- 3. 跨表引用
 print('\n=== 3. 药品也在用的附件不能删 ===')
-store.delete_records('health_records', [r3])
-check('r3 删掉了', r3 not in [x['id'] for x in store.read_all('health_records')])
+store.delete_records('documents', [r3])
+check('r3 删掉了', r3 not in [x['id'] for x in store.read_all('documents')])
 check('c.pdf 仍被药品 d1 引用，文件留着', on_disk(C))
 # 现在把药品也删掉，c.pdf 才应该走
 store.delete_records('drugs', [d1])
@@ -147,23 +147,23 @@ check('药品删掉后 c.pdf 才真正被清理', not on_disk(C) and not registe
 # ---------------------------------------------------------------- 4. 脏登记不致命
 print('\n=== 4. 附件登记与磁盘不一致时 ===')
 check('夹具里 d.pdf 有登记但没有文件', registered(D) and not on_disk(D))
-res4 = store.delete_records('health_records', [r4])
+res4 = store.delete_records('documents', [r4])
 check('脏附件不影响删除档案本身', res4['deleted'] == 1)
 check('脏登记被清理', not registered(D))
-check('health_records 已清空', store.counts()['health_records'] == 0)
+check('documents 已清空', store.counts()['documents'] == 0)
 
 # ---------------------------------------------------------------- 5. 快照与回退
 print('\n=== 5. 删除前的快照必须能把它救回来 ===')
-store.upsert('health_records', [{'id': None, 'title': 'X', 'document_type': '体检报告',
+store.upsert('documents', [{'id': None, 'title': 'X', 'document_type': '体检报告',
                                  'source_attachments': []}])
 keep = att('attachments/keep.pdf')
-kid = store.read_all('health_records')[0]['id']
-store.upsert('health_records', [{'id': None, 'title': 'Y', 'document_type': '体检报告',
+kid = store.read_all('documents')[0]['id']
+store.upsert('documents', [{'id': None, 'title': 'Y', 'document_type': '体检报告',
                                  'source_attachments': [keep]}])
-yid = [x['id'] for x in store.read_all('health_records') if x['title'] == 'Y'][0]
+yid = [x['id'] for x in store.read_all('documents') if x['title'] == 'Y'][0]
 
 snaps_before = len(store.snapshot_list())
-r5 = store.delete_records('health_records', [yid])
+r5 = store.delete_records('documents', [yid])
 check('删除前自动打了快照', len(store.snapshot_list()) == snaps_before + 1,
       '%d → %d' % (snaps_before, len(store.snapshot_list())))
 # 快照名只到秒。同一秒内连着打两份会撞名，后一份盖掉前一份，回退点就凭空少一个。
@@ -185,27 +185,27 @@ check('从快照回退后物理文件也回来了', on_disk('attachments/keep.pd
 
 # ---------------------------------------------------------------- 6. 边界
 print('\n=== 6. 边界与拒绝 ===')
-ids_before = [x['id'] for x in store.read_all('health_records')]
-r6 = store.delete_records('health_records', [999999])
+ids_before = [x['id'] for x in store.read_all('documents')]
+r6 = store.delete_records('documents', [999999])
 check('不存在的 id：deleted=0', r6['deleted'] == 0, str(r6.get('deleted')))
-check('不存在的 id：什么都没删', [x['id'] for x in store.read_all('health_records')] == ids_before)
+check('不存在的 id：什么都没删', [x['id'] for x in store.read_all('documents')] == ids_before)
 
-r7 = store.delete_records('health_records', [])
+r7 = store.delete_records('documents', [])
 check('空列表不删任何行', r7['deleted'] == 0)
 check('空列表也不会白打一份快照', r7.get('snapshot') is None, str(r7.get('snapshot')))
 
 expect_error('未知表名被拒绝', lambda: store.delete_records('secrets', [1]), '未知')
 
-expect_error('非整数的 id 被拒绝', lambda: store.delete_records('health_records', ['abc']), '合法')
+expect_error('非整数的 id 被拒绝', lambda: store.delete_records('documents', ['abc']), '合法')
 
 # 快照失败时必须中止：不可逆操作不能没有退路
 _real_snapshot = store.snapshot
 store.snapshot = lambda reason='auto': None
-before = [x['id'] for x in store.read_all('health_records')]
+before = [x['id'] for x in store.read_all('documents')]
 try:
     expect_error('快照写不出来时中止删除',
-                 lambda: store.delete_records('health_records', before[:1]), '快照')
-    check('中止后档案还在', [x['id'] for x in store.read_all('health_records')] == before)
+                 lambda: store.delete_records('documents', before[:1]), '快照')
+    check('中止后档案还在', [x['id'] for x in store.read_all('documents')] == before)
 finally:
     store.snapshot = _real_snapshot
 

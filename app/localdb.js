@@ -2,7 +2,7 @@
    个人健康档案工作台 · 本地数据层（localdb.js）
    ------------------------------------------------------------
    数据全部存放在浏览器的 IndexedDB 里，不上传到任何服务器：
-     · 四张表：health_records / drugs / indicator_catalog / daily_indicator_records
+     · 四张表：documents / drugs / indicators / manual_records
      · 附件：原始文件以 Blob 形式存进 files 存储，读取时生成本地对象地址
 
    结构：
@@ -19,10 +19,14 @@
 
 var DB_NAME = 'health_records_local';
 var DB_VERSION = 1;
-var TABLES = ['health_records', 'drugs', 'indicator_catalog', 'daily_indicator_records'];
+var TABLES = ['documents', 'drugs', 'indicators', 'manual_records'];
+// 恢复（导入备份）时的落地顺序：指标目录必须先于档案。
+// 档案里的检验项要靠「别名 → 指标 id」落到观测值上；目录还没进库时会临时新建一批
+// 指标，随后又被备份里的目录覆盖，观测值就挂到了不存在的指标上 —— 详情页整张检验表消失。
+var RESTORE_ORDER = ['indicators', 'documents', 'drugs', 'manual_records'];
 var FILE_STORE = 'files';
 var LOCAL_OWNER = 'local-user';
-var BACKUP_SCHEMA = 'health-records-local-backup/v1';
+var BACKUP_SCHEMA = 'health-records-local-backup/v2';
 
 /* ============================================================
    A. 纯逻辑
@@ -80,10 +84,10 @@ function maxId(rows) {
 
 // 对齐数据库的 NOT NULL 默认值；本地不做约束校验，但保持字段形态一致
 var DEFAULTS = {
-  health_records: { date_status: '已确认', source_attachments: [], type_specific_data: {}, parse_status: '待解析' },
+  documents: { date_status: '已确认', source_attachments: [], type_specific_data: {}, parse_status: '待解析' },
   drugs: { status: '备用药', history: [], has_conflict: false, source_attachments: [] },
-  indicator_catalog: { aliases: [], followed: false, sort_order: 0, preset: false },
-  daily_indicator_records: { source: '手动录入' }
+  indicators: { aliases: [], followed: false, sort_order: 0, preset: false },
+  manual_records: { source: '手动录入' }
 };
 
 // 模拟服务端行为：分配自增主键、补默认值、写时间戳，其余值原样保留
@@ -461,9 +465,24 @@ var serverDriver = {
     return j.rows || [];
   },
 
-  async putRows(store, rows) {
-    if (!rows || !rows.length) return;
-    await this._post('/api/db/put', { table: store, rows: rows });
+  // opts.insert=true 表示这是「新增」而不是「按 id 覆盖写」：
+  // 自增主键归 SQLite 分配，客户端算出来的 id 只是占位。带上去会被服务端
+  // 当成"更新这条"（撞上已存在的 id 就静默改写别人的记录），所以先摘掉，
+  // 再把服务端真正分配到的 id 交回调用方（返回值）。
+  // 修复 / 从备份恢复走 importBackup 直接调本方法且**不带**这个选项，
+  // 备份里的 id 必须原样保留。
+  async putRows(store, rows, opts) {
+    if (!rows || !rows.length) return [];
+    var payload = rows;
+    if (opts && opts.insert) {
+      payload = rows.map(function (r) {
+        var out = {};
+        Object.keys(r).forEach(function (k) { if (k !== 'id') out[k] = r[k]; });
+        return out;
+      });
+    }
+    var j = await this._post('/api/db/put', { table: store, rows: payload });
+    return (j && j.ids) || [];
   },
 
   async deleteRows(store, ids) {
@@ -564,7 +583,7 @@ var serverDriver = {
   // 批量归属：默认只动尚未归属的记录。服务端会先打快照。
   async assignPerson(table, personId, onlyUnassigned) {
     var j = await this._post('/api/persons/assign', {
-      table: table || 'health_records',
+      table: table || 'documents',
       person_id: personId,
       only_unassigned: onlyUnassigned !== false
     });
@@ -574,7 +593,7 @@ var serverDriver = {
   // 把某个成员名下的档案改回「未指定」（删成员时用）
   async clearPerson(table, personId) {
     var j = await this._post('/api/persons/clear', {
-      table: table || 'health_records',
+      table: table || 'documents',
       person_id: personId
     });
     return { changed: j.changed || 0, snapshot: j.snapshot || null };
@@ -583,7 +602,7 @@ var serverDriver = {
   /* 删档案。服务端先打快照再删行，并把因此不再被任何记录引用的附件一起删掉。 */
   async deleteRecords(table, ids) {
     var j = await this._post('/api/db/delete-records', {
-      table: table || 'health_records',
+      table: table || 'documents',
       ids: ids || []
     });
     return {
@@ -652,7 +671,15 @@ function createLocal(opts) {
 
       if (b.mode === 'insert') {
         var added = prepareInsert(table, rows, b.payload);
-        await D.putRows(table, added);
+        // 驱动若把「服务端分配的真实 id」交回来，必须采用 —— 客户端算出的
+        // 只是占位（服务端自增序列可能因为此前的删除而走得更远），
+        // 拿着占位 id 去开详情，用户看到的是「找不到这份档案」。
+        var assigned = await D.putRows(table, added, { insert: true });
+        if (Array.isArray(assigned) && assigned.length === added.length) {
+          for (var k = 0; k < added.length; k++) {
+            if (assigned[k] !== null && assigned[k] !== undefined) added[k].id = assigned[k];
+          }
+        }
         cache[table] = rows.concat(added);
         return { data: b.ret ? added : null, error: null };
       }
@@ -761,8 +788,8 @@ function createLocal(opts) {
     async importBackup(obj) {
       var v = validateBackup(obj);
       if (!v.ok) return { ok: false, errors: v.errors, written: 0, filesWritten: 0, counts: {} };
-      for (var i = 0; i < TABLES.length; i++) {
-        var name = TABLES[i];
+      for (var i = 0; i < RESTORE_ORDER.length; i++) {
+        var name = RESTORE_ORDER[i];
         var rows = v.tables[name] || [];
         await D.clearTable(name);
         await D.putRows(name, rows);
@@ -848,7 +875,7 @@ function createLocal(opts) {
         return { ok: false, reason: '当前数据驱动不支持批量归属' };
       }
       try {
-        var j = await D.assignPerson(table || 'health_records', personId, onlyUnassigned);
+        var j = await D.assignPerson(table || 'documents', personId, onlyUnassigned);
         return { ok: true, changed: j.changed || 0, snapshot: j.snapshot || null };
       } catch (e) {
         return { ok: false, reason: e.message || String(e) };
@@ -860,7 +887,7 @@ function createLocal(opts) {
         return { ok: false, reason: '当前数据驱动不支持解除归属' };
       }
       try {
-        var j = await D.clearPerson(table || 'health_records', personId);
+        var j = await D.clearPerson(table || 'documents', personId);
         return { ok: true, changed: j.changed || 0, snapshot: j.snapshot || null };
       } catch (e) {
         return { ok: false, reason: e.message || String(e) };
@@ -878,7 +905,7 @@ function createLocal(opts) {
         return { ok: false, reason: '当前数据驱动不支持删除档案（只有本机磁盘数据层会连带清理附件）' };
       }
       try {
-        var j = await D.deleteRecords(table || 'health_records', ids || []);
+        var j = await D.deleteRecords(table || 'documents', ids || []);
         return {
           ok: true, deleted: j.deleted || 0,
           filesRemoved: j.filesRemoved || [], filesFailed: j.filesFailed || [],

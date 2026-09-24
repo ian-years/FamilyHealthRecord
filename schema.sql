@@ -41,7 +41,13 @@ CREATE TABLE IF NOT EXISTS documents (
   source_file     TEXT,                   -- 关联 files.path
   parsed_content  TEXT,                   -- 解析出的 Markdown 原文
   key_information TEXT,
-  legacy_payload  TEXT,                   -- 旧库整条 JSON（溯源/回滚/兼容）
+  owner_id        TEXT,                   -- 数据归属（本地版固定 local-user）
+  parse_status    TEXT,                   -- 解析状态（如「已归档」）
+  xparse_task_id  TEXT,                   -- 外部解析任务 id
+  xparse_run_id   TEXT,                   -- 外部解析运行 id
+  source_attachments TEXT,                -- JSON 数组：原件引用（name/path/mime/size）
+  manual_edits    TEXT,                   -- JSON 数组：人工编辑历史
+  detail_json     TEXT,                   -- 关系列之外残留字段的 JSON（无损往返）
   created_at      TEXT,
   updated_at      TEXT
 );
@@ -83,7 +89,10 @@ CREATE INDEX IF NOT EXISTS idx_alias_ind   ON indicator_aliases(indicator_id);
 -- 人 + 指标 + 日期 + 数值。趋势图的唯一数据源。
 CREATE TABLE IF NOT EXISTS observations (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  person_id     INTEGER NOT NULL REFERENCES persons(id),
+  -- 可以为 NULL：「未指定」是档案的合法状态（先导入、后归属），
+  -- 这类档案的检验项同样要落库，否则详情页整张检验表是空的。
+  -- 之后用 assign_person 归属时，会连同 observations.person_id 一起更新。
+  person_id     INTEGER REFERENCES persons(id),
   indicator_id  INTEGER NOT NULL REFERENCES indicators(id),
   document_id   INTEGER REFERENCES documents(id),   -- 来源档案（手动录入为 NULL）
   obs_date      TEXT NOT NULL,
@@ -124,11 +133,37 @@ CREATE TABLE IF NOT EXISTS drugs (
   end_date       TEXT,
   status         TEXT,                  -- 在用 / 已停
   note           TEXT,
-  legacy_payload TEXT,                  -- 旧 JSON 原文（兼容/溯源）
+  detail_json    TEXT,                  -- 关系列之外的残留字段（history / has_conflict / source_attachments …）
   created_at     TEXT,
   updated_at     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_drugs_person ON drugs(person_id);
+
+-- ---------------------------------------------------------------- 手动录入记录
+-- 原 V1 的 daily_indicator_records（文档式 (id, payload)）在 V2 落成关系列。
+-- 手动录入不并入 observations：数值/双数值/定性文字的字段形态与观测值不同，
+-- 合并会丢 value2 / text_result / review。
+CREATE TABLE IF NOT EXISTS manual_records (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id     INTEGER REFERENCES persons(id),
+  indicator_key TEXT,                   -- 指标稳定键（对应 indicators.key）
+  name          TEXT,                   -- 录入时的显示名
+  record_date   TEXT,                   -- YYYY-MM-DD
+  type          TEXT,                   -- 数值 / 双数值 / 定性文字
+  value1        TEXT,
+  value2        TEXT,
+  text_result   TEXT,
+  unit          TEXT,
+  reference     TEXT,
+  flag          TEXT,
+  condition     TEXT,
+  review        TEXT,                   -- 复核状态（默认「用户录入」）
+  note          TEXT,
+  source        TEXT DEFAULT '手动录入',
+  created_at    TEXT,
+  updated_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_manual_person ON manual_records(person_id, indicator_key);
 
 -- ---------------------------------------------------------------- 收费明细
 CREATE TABLE IF NOT EXISTS charge_items (

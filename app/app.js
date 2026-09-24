@@ -59,12 +59,12 @@ function personCount(pid) {
   return Number(m[k] || 0);
 }
 
-/* 一个成员名下的行不止 health_records：日常录入也带 person_id。
+/* 一个成员名下的行不止 documents：日常录入也带 person_id。
    删成员时只清档案，那些手动记录就变成"名单外的人"的悬空归属 ——
    既不在任何成员视图里，也不在「未指定」里，只能从「全部」看到，等于消失了。 */
 function personOwnedTables(pid) {
   var out = [];
-  ['health_records', 'daily_indicator_records'].forEach(function (t) {
+  ['documents', 'manual_records'].forEach(function (t) {
     var b = bucket(t);
     var n = (b.rows || []).filter(function (r) { return L.personMatches(r, pid); }).length;
     if (n > 0) out.push({ table: t, count: n });
@@ -188,10 +188,10 @@ var S = {
   view: 'overview',
   range: '12',                       // 12 | 3 | all
   tables: {
-    health_records: { state: 'idle', rows: [], error: null, count: 0 },
+    documents: { state: 'idle', rows: [], error: null, count: 0 },
     drugs: { state: 'idle', rows: [], error: null, count: 0 },
-    indicator_catalog: { state: 'idle', rows: [], error: null, count: 0 },
-    daily_indicator_records: { state: 'idle', rows: [], error: null, count: 0 }
+    indicators: { state: 'idle', rows: [], error: null, count: 0 },
+    manual_records: { state: 'idle', rows: [], error: null, count: 0 }
   },
   booted: false,
   filters: { q: '', type: '', hospital: '', person: '' },
@@ -305,15 +305,15 @@ async function refreshPersons() {
 
 async function loadAll() {
   await Promise.all([
-    loadTable('health_records', 'primary_date'),
+    loadTable('documents', 'primary_date'),
     loadTable('drugs', 'updated_at'),
-    loadTable('indicator_catalog', 'sort_order'),
-    loadTable('daily_indicator_records', 'record_date')
+    loadTable('indicators', 'sort_order'),
+    loadTable('manual_records', 'record_date')
   ]);
   await ensureCatalog();
   await loadPersons();
   /* 老目录补 followers：V2 模式下必须跳过。
-     重构后 indicator_catalog 是由 indicators 表生成的视图，有几百项；
+     重构后 indicators 是由 indicators 表生成的视图，有几百项；
      这一步会逐行 update 回旧表，几百个请求能把启动卡死，
      而且目录的关注关系已经由 watched_indicators 接管，补它没有意义。 */
   if (!(window.V2 && V2.isEnabled())) {
@@ -324,7 +324,7 @@ async function loadAll() {
 
 // 首次登录时初始化预置指标目录（真实写入，失败不伪装成功）
 async function ensureCatalog() {
-  var b = bucket('indicator_catalog');
+  var b = bucket('indicators');
   if (b.state !== 'ok') return;
   if (b.rows.length > 0) return;
   var payload = L.PRESET_CATALOG.map(function (c) {
@@ -333,9 +333,9 @@ async function ensureCatalog() {
       aliases: c.aliases || [], followed: !!c.followed, sort_order: c.order, preset: !!c.preset
     };
   });
-  var res = await cloud.database.from('indicator_catalog').insert(payload).select();
+  var res = await cloud.database.from('indicators').insert(payload).select();
   if (res.error) { b.error = '初始化指标目录失败：' + res.error.message; renderSyncStrip(); return; }
-  await loadTable('indicator_catalog', 'sort_order');
+  await loadTable('indicators', 'sort_order');
 }
 
 // 数据库是目录的数据源（名称/分组/单位/关注/排序）；换算规则与 OGTT 归类属于
@@ -357,7 +357,7 @@ function mergeCatalogMeta(row) {
 function catalogSort(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); }
 // 定义（名称/单位/别名/换算）全家共用一份，catalogList 不做按人裁剪；
 // 只有「是否关注」按人，读 followed 的地方一律改用 catalogView()。
-function catalogList() { return bucket('indicator_catalog').rows.map(mergeCatalogMeta).sort(catalogSort); }
+function catalogList() { return bucket('indicators').rows.map(mergeCatalogMeta).sort(catalogSort); }
 function catalogView() { return L.catalogForPerson(catalogList(), S.personView); }
 function personViewLabel() {
   if (L.isAllView(S.personView)) return '全部';
@@ -374,7 +374,7 @@ async function migrateCatalogFollowers() {
      下一次加载就"已经有 followers 数组"不再补，全家每个人的关注清单永久变空且无从恢复。 */
   if (S.personState !== 'ok') return;
   if (!S.persons.length) return;
-  var missing = bucket('indicator_catalog').rows.filter(function (r) {
+  var missing = bucket('indicators').rows.filter(function (r) {
     return !Array.isArray(r.followers);
   });
   if (!missing.length) return;
@@ -382,12 +382,12 @@ async function migrateCatalogFollowers() {
   for (var i = 0; i < missing.length; i++) {
     var r = missing[i];
     var next = L.withFollowers(r, S.persons);
-    var res = await cloud.database.from('indicator_catalog')
+    var res = await cloud.database.from('indicators')
       .update({ followers: next.followers }).eq('id', r.id).select();
     if (res.error || !res.data || !res.data.length) failed++;
   }
   cloud.invalidate();
-  await loadTable('indicator_catalog', 'sort_order');
+  await loadTable('indicators', 'sort_order');
   if (failed) S.followNotice = '有 ' + failed + ' 项指标的关注设置没能升级到按人存储，' +
     '这些项仍按全家共用处理。';
 }
@@ -458,8 +458,8 @@ async function sha256Hex(file) {
 // 报告派生项 + 日常录入项 汇合，但保留来源区别；不重复生成派生结果
 function allIndicatorPoints(pid) {
   var who = (pid === undefined) ? S.personView : pid;
-  var derived = L.deriveIndicatorPoints(bucket('health_records').rows, catalogList(), who);
-  var manual = bucket('daily_indicator_records').rows
+  var derived = L.deriveIndicatorPoints(bucket('documents').rows, catalogList(), who);
+  var manual = bucket('manual_records').rows
     .filter(function (r) { return L.personMatches(r, who); }).map(function (r) {
     var c = catalogByKey()[r.indicator_key] || {};
     return {
@@ -538,8 +538,15 @@ async function checkLegacyMigration() {
   try {
     if (!window.LocalDB.idbDriver) return false;
     if (!SERVER.info || !SERVER.info.counts) return false;
-    var total = 0;
-    Object.keys(SERVER.info.counts).forEach(function (k) { total += SERVER.info.counts[k]; });
+    /* 「磁盘上还没有记录」说的是用户数据（档案 / 药品 / 手填记录）。
+       指标目录是归一化出来的派生知识 —— 「清空本机数据」刻意不清它，
+       所以不能把 indicators 算进来：算进来之后清空完磁盘仍"不为空"，
+       这道门禁永远为假，浏览器里的旧档案再也搬不过来。 */
+    var total = (typeof SERVER.info.records === 'number')
+      ? SERVER.info.records
+      : Object.keys(SERVER.info.counts)
+        .filter(function (k) { return k !== 'indicators'; })
+        .reduce(function (a, k) { return a + SERVER.info.counts[k]; }, 0);
     if (total > 0) return false;
 
     var drv = window.LocalDB.idbDriver;
@@ -675,7 +682,7 @@ async function doParseUpload() {
     openImportDrawer(null, {
       files: files,
       payload: {
-        target: 'health_records',
+        target: 'documents',
         records: [{
           document_type: '其他医疗资料',
           primary_date: guessed,
@@ -947,7 +954,7 @@ async function doLlmProbe() {
 var STRUCT = { recordId: null, rec: null, result: null, conflicts: [] };
 
 function findHealthRecord(id) {
-  var rows = bucket('health_records').rows;
+  var rows = bucket('documents').rows;
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i].id) === String(id)) return rows[i];
   }
@@ -1337,7 +1344,7 @@ async function doStructApply() {
     }));
   }
   try {
-    var res = await cloud.database.from('health_records').update(patch).eq('id', STRUCT.recordId).select();
+    var res = await cloud.database.from('documents').update(patch).eq('id', STRUCT.recordId).select();
     if (res.error) throw res.error;
     if (!res.data || !res.data.length) throw new Error('没有匹配到这条记录，可能已被删除');
     var rid = STRUCT.recordId;
@@ -1371,7 +1378,7 @@ function go(view, opts) {
 }
 
 function renderCurrent() {
-  if (!S.booted && !S.tables.health_records.rows.length && S.tables.health_records.state !== 'ok') {
+  if (!S.booted && !S.tables.documents.rows.length && S.tables.documents.state !== 'ok') {
     // 数据尚未就绪时也给出准确状态
   }
   if (S.view === 'overview') renderOverview();
@@ -1385,7 +1392,7 @@ function renderCurrent() {
 function renderSyncStrip() {
   var host = qsa('.sync-host');
   if (!host.length) return;
-  var names = { health_records: '健康档案', drugs: '药品', indicator_catalog: '指标目录', daily_indicator_records: '日常指标' };
+  var names = { documents: '健康档案', drugs: '药品', indicators: '指标目录', manual_records: '日常指标' };
   var html = Object.keys(S.tables).map(function (k) {
     var t = S.tables[k];
     var cls = t.state === 'ok' ? 'ok' : (t.state === 'error' ? 'fail' : (t.state === 'loading' ? 'load' : ''));
@@ -1622,7 +1629,7 @@ function renderOverview() {
   var host = $('s-overview');
   // 成员切换：选中某人后，本页 KPI、关注指标表、趋势、资料活动、类型分布、费用
   // 全部只算他的资料；「全部」保持原有行为不变。
-  var recs = bucket('health_records').rows.filter(function (r) {
+  var recs = bucket('documents').rows.filter(function (r) {
     return L.personMatches(r, S.personView);
   });
   var drugs = bucket('drugs').rows;
@@ -1682,7 +1689,7 @@ function renderOverview() {
   html += '<div class="note" style="margin:0 0 11px">时间范围：<b>仅作用于本表的指标结果与趋势统计</b>，不影响下方的资料活动、类型分布与费用统计。</div>';
 
   if (!cat.length) {
-    html += msg(S.tables.indicator_catalog.state === 'error' ? '指标目录未能同步，无法展示关注指标。' : '指标目录为空，正在初始化…');
+    html += msg(S.tables.indicators.state === 'error' ? '指标目录未能同步，无法展示关注指标。' : '指标目录为空，正在初始化…');
   } else {
     /* 概览只显示已关注项（需求方 2026-09-24 定口径：彻底隐藏）。
        未关注但有数据的指标仍完整保留在库里，从「添加关注」目录和指标详情页可达；
@@ -1899,7 +1906,7 @@ function docCard(r) {
 
 function renderTimeline() {
   var host = $('s-timeline');
-  var all = bucket('health_records').rows;
+  var all = bucket('documents').rows;
   var tl = L.groupTimeline(all);
   var filters = S.filters;
 
@@ -1952,8 +1959,8 @@ function renderTimeline() {
     '</div>';
 
   if (!all.length) {
-    html += msg(S.tables.health_records.state === 'error'
-      ? '健康档案未能同步：' + (S.tables.health_records.error || '读取失败')
+    html += msg(S.tables.documents.state === 'error'
+      ? '健康档案未能同步：' + (S.tables.documents.error || '读取失败')
       : '还没有任何档案。四张表为空时不展示任何虚构报告、药品、金额或趋势；请先在「上传资料」中归档。');
     host.innerHTML = html;
     bindTimeline();
@@ -2104,10 +2111,10 @@ function renderUpload() {
     '<dt>目录</dt><dd style="word-break:break-all">' +
       (info.data_dir ? '<code>' + esc(info.data_dir) + '</code>'
                      : '<span class="muted">' + esc(SERVER.error || '未连接本地数据服务') + '</span>') + '</dd>' +
-    '<dt>健康档案</dt><dd class="num">' + (cnt.health_records !== undefined ? cnt.health_records : S.tables.health_records.count) + ' 条</dd>' +
+    '<dt>健康档案</dt><dd class="num">' + (cnt.documents !== undefined ? cnt.documents : S.tables.documents.count) + ' 条</dd>' +
     '<dt>药品</dt><dd class="num">' + (cnt.drugs !== undefined ? cnt.drugs : S.tables.drugs.count) + ' 条</dd>' +
-    '<dt>指标目录</dt><dd class="num">' + (cnt.indicator_catalog !== undefined ? cnt.indicator_catalog : S.tables.indicator_catalog.count) + ' 条</dd>' +
-    '<dt>日常指标</dt><dd class="num">' + (cnt.daily_indicator_records !== undefined ? cnt.daily_indicator_records : S.tables.daily_indicator_records.count) + ' 条</dd>' +
+    '<dt>指标目录</dt><dd class="num">' + (cnt.indicators !== undefined ? cnt.indicators : S.tables.indicators.count) + ' 条</dd>' +
+    '<dt>日常指标</dt><dd class="num">' + (cnt.manual_records !== undefined ? cnt.manual_records : S.tables.manual_records.count) + ' 条</dd>' +
     '<dt>原始附件</dt><dd class="num">' +
       (lo.error ? '<span class="muted">' + esc(lo.error) + '</span>'
                 : (lo.files || 0) + ' 个 · ' + window.LocalDB.formatBytes(lo.fileBytes || 0)) + '</dd>' +
@@ -2258,7 +2265,7 @@ function normalizeArchivePayload(raw) {
   if (!target) {
     var hasDrug = records.some(function (r) { return r.drug_name || r.drug_key; });
     var hasDoc = records.some(function (r) { return r.document_type; });
-    target = (hasDrug && !hasDoc) ? 'drugs' : 'health_records';
+    target = (hasDrug && !hasDoc) ? 'drugs' : 'documents';
   }
   /* 日期状态按最终日期统一重判（导入兜底）：有合法日期 → 已确认；
      没日期或日期非法 → 待确认。归档包可能由外部按旧规则生成（有日期却标
@@ -2441,7 +2448,7 @@ async function doImport() {
   if (!p || p.parseError || !p.records.length) {
     return setImportMsg('请先选择一个有效的归档包。', true);
   }
-  var tableName = p.target === 'drugs' ? 'drugs' : 'health_records';
+  var tableName = p.target === 'drugs' ? 'drugs' : 'documents';
   var rows = [];
   var skipped = [];
   var existing = bucket(tableName).rows;
@@ -2551,7 +2558,7 @@ function setImportMsg(text, isErr) {
 
 function renderArchive() {
   var host = $('s-archive');
-  var all = bucket('health_records').rows;
+  var all = bucket('documents').rows;
   var f = S.archFilter;
   var docs = all.filter(function (r) {
     if (f.type && L.normalizeDocType(r.document_type) !== f.type) return false;
@@ -2672,7 +2679,7 @@ function archiveDelCell(r, attCount) {
 }
 
 async function deleteOneRecord(id, from) {
-  var res = await cloud.deleteRecords('health_records', [Number(id)]);
+  var res = await cloud.deleteRecords('documents', [Number(id)]);
   if (!res.ok) {
     ARCHIVE_UI.pendingDel = null;
     if (from === 'doc') { DOC_UI.pendingDel = null; setDocMsg('删除失败：' + res.reason, true); }
@@ -2683,7 +2690,7 @@ async function deleteOneRecord(id, from) {
   DOC_UI.pendingDel = null;
   // 删除发生在服务端（行 + 磁盘附件），门面缓存不会自己失效，必须 invalidate
   cloud.invalidate();
-  await loadTable('health_records', 'primary_date');
+  await loadTable('documents', 'primary_date');
   await refreshPersons();
   await refreshLocalStats();
 
@@ -2729,7 +2736,7 @@ var PERSONS_UI = { pendingDel: null, pendingAssign: null, draft: {}, adding: '' 
 
 function renderPersons() {
   var host = $('s-persons');
-  var total = bucket('health_records').rows.length;
+  var total = bucket('documents').rows.length;
   var unassigned = unassignedCount();
 
   var h = '';
@@ -2800,7 +2807,7 @@ function renderPersons() {
         (ownedN > 0
           ? '删除后，这个成员名下的 ' + ownedN + ' 条资料（' +
             ownedRows.map(function (o) {
-              return (o.table === 'health_records' ? '档案' : '手动记录') + ' ' + o.count;
+              return (o.table === 'documents' ? '档案' : '手动记录') + ' ' + o.count;
             }).join('、') + '）会变成「未指定」。资料本身不会被删除，' +
             '重新添加一个成员后再批量归属即可找回。'
           : '这个成员名下没有资料，删除只影响名单。') +
@@ -2920,31 +2927,31 @@ function setPersonMsg(text, isErr) {
 /* 把整个目录的 followers 按给定规则重写一遍。逐行 update，
    哪几行没写成要如实报出来，不能只说「成功」。返回失败条数。 */
 async function rewriteCatalogFollowers(nextRows) {
-  var rows = bucket('indicator_catalog').rows;
+  var rows = bucket('indicators').rows;
   var failed = 0;
   for (var i = 0; i < nextRows.length; i++) {
     var before = rows[i] && Array.isArray(rows[i].followers) ? rows[i].followers : null;
     var after = nextRows[i].followers;
     if (before && after && JSON.stringify(before.slice().sort()) === JSON.stringify(after.slice().sort())) continue;
-    var r = await cloud.database.from('indicator_catalog')
+    var r = await cloud.database.from('indicators')
       .update({ followers: after }).eq('id', rows[i].id).select();
     if (r.error || !r.data || !r.data.length) failed++;
   }
   cloud.invalidate();
-  await loadTable('indicator_catalog', 'sort_order');
+  await loadTable('indicators', 'sort_order');
   return failed;
 }
 
 // 新成员默认继承「我」的关注集合，否则他点进概览是一张空白目录
 async function applyFollowInherit(newPid) {
-  var rows = bucket('indicator_catalog').rows;
+  var rows = bucket('indicators').rows;
   if (!rows.length) return 0;
   return rewriteCatalogFollowers(L.inheritFollowers(rows, defaultPersonId(), newPid));
 }
 
 // 成员删掉后，他的 id 不该继续留在各项关注集合里
 async function applyFollowPrune() {
-  var rows = bucket('indicator_catalog').rows;
+  var rows = bucket('indicators').rows;
   if (!rows.length) return 0;
   return rewriteCatalogFollowers(L.pruneFollowers(rows, S.persons));
 }
@@ -3056,7 +3063,7 @@ async function doPersonDelete(pid) {
   if (owned.length) {
     cloud.invalidate();
     for (var ri = 0; ri < owned.length; ri++) {
-      await loadTable(owned[ri].table, owned[ri].table === 'health_records' ? 'primary_date' : 'record_date');
+      await loadTable(owned[ri].table, owned[ri].table === 'documents' ? 'primary_date' : 'record_date');
     }
   }
   await applyFollowPrune();
@@ -3071,7 +3078,7 @@ async function doPersonDelete(pid) {
 async function doPersonAssign() {
   var sel = $('psAssignTo');
   if (!sel || !sel.value) return setPersonMsg('请先选择要归属到哪个成员。', true);
-  var res = await cloud.assignPerson('health_records', Number(sel.value), true);
+  var res = await cloud.assignPerson('documents', Number(sel.value), true);
   PERSONS_UI.pendingAssign = false;
   if (!res.ok) {
     renderPersons();
@@ -3081,7 +3088,7 @@ async function doPersonAssign() {
   // 关键点：改写发生在服务端 SQLite，门面层的内存缓存不会自己失效，
   // 不 invalidate 的话 loadTable 直接返回旧缓存，页面上「已归属」数字纹丝不动。
   cloud.invalidate();
-  await loadTable('health_records', 'primary_date');
+  await loadTable('documents', 'primary_date');
   await refreshPersons();
   renderPersons();
   setPersonMsg('已把 ' + res.changed + ' 份档案归到该成员' +
@@ -3240,12 +3247,12 @@ function openFollowDrawer() {
       var patch = L.isAllView(S.personView)
         ? { followed: !!changed[i].on }
         : { followers: next.followers };
-      var r = await cloud.database.from('indicator_catalog')
+      var r = await cloud.database.from('indicators')
         .update(patch).eq('key', changed[i].key).select();
       if (r.error || !r.data || !r.data.length) failed.push(changed[i].key);
     }
     btn.disabled = false; btn.textContent = '保存关注设置';
-    await loadTable('indicator_catalog', 'sort_order');
+    await loadTable('indicators', 'sort_order');
     if (failed.length) {
       alert('有 ' + failed.length + ' 项未保存成功，页面保持远端真实状态：' + failed.join('、'));
       return;
@@ -3285,7 +3292,7 @@ function openCustomDrawer() {
         ? S.persons.map(function (p) { return Number(p.id); }).concat([0])
         : [who])
       : [];
-    var res = await cloud.database.from('indicator_catalog').insert({
+    var res = await cloud.database.from('indicators').insert({
       name: name, key: key, grp: $('cusGroup').value, type: type,
       unit: unit || null, aliases: aliases, followed: on, followers: followers,
       sort_order: 900, preset: false
@@ -3295,7 +3302,7 @@ function openCustomDrawer() {
       if (res.error.code === '23505') return alert('该指标名称对应的标准键已存在，请换一个名称或直接使用已有指标。');
       return alert('保存失败：' + res.error.message);
     }
-    await loadTable('indicator_catalog', 'sort_order');
+    await loadTable('indicators', 'sort_order');
     closeDrawers();
     renderCurrent();
   };
@@ -3368,14 +3375,14 @@ function openDailyDrawer(key, presetDate) {
     };
     var btn = $('btnDailySave');
     btn.disabled = true; btn.textContent = '保存中…';
-    var res = await cloud.database.from('daily_indicator_records').insert(row).select();
+    var res = await cloud.database.from('manual_records').insert(row).select();
     if (res.error || !res.data || !res.data.length) {
       btn.disabled = false; btn.textContent = '保存记录';
       return alert('保存失败：' + (res.error ? res.error.message : '服务端没有返回记录') + '。表单内容已保留。');
     }
     var newId = res.data[0].id;
-    await loadTable('daily_indicator_records', 'record_date');
-    var back = bucket('daily_indicator_records').rows.filter(function (r) { return r.id === newId; });
+    await loadTable('manual_records', 'record_date');
+    var back = bucket('manual_records').rows.filter(function (r) { return r.id === newId; });
     btn.disabled = false; btn.textContent = '保存记录';
     if (!back.length) return alert('写入已返回，但回读未命中该记录，请刷新后核对。');
     closeDrawers();
@@ -3488,7 +3495,7 @@ async function saveDrugPatch(d, patch, btnId, label) {
 
 async function openDoc(id, fromLabel) {
   var find = function () {
-    return bucket('health_records').rows.filter(function (r) { return String(r.id) === String(id); })[0] || null;
+    return bucket('documents').rows.filter(function (r) { return String(r.id) === String(id); })[0] || null;
   };
   var rec = find();
   if (!rec && SERVER.info) {
@@ -3667,12 +3674,12 @@ async function applyRecordEdit(id, patch, opts) {
   if (next.manual_edits) body.manual_edits = next.manual_edits;
   if (!Object.keys(body).length) return { ok: true, changed: 0, record: prev };
 
-  var res = await cloud.database.from('health_records').update(body).eq('id', Number(id)).select();
+  var res = await cloud.database.from('documents').update(body).eq('id', Number(id)).select();
   if (res.error || !res.data || !res.data.length) {
     return { ok: false, reason: res.error ? res.error.message : '写入没有命中任何记录，数据没有改变' };
   }
   var added = L.editsOf(next).length - L.editsOf(prev).length;
-  await loadTable('health_records', 'primary_date');
+  await loadTable('documents', 'primary_date');
   await refreshPersons();
   await refreshLocalStats();
   var back = findHealthRecord(id);
@@ -4004,11 +4011,11 @@ async function bindDocViewer(rec, pfx) {
         var added = [];
         for (var i = 0; i < files.length; i++) added.push(await uploadOriginal(files[i]));
         var next = attachmentsOf(rec).concat(added);
-        var res = await cloud.database.from('health_records')
+        var res = await cloud.database.from('documents')
           .update({ source_attachments: next }).eq('id', rec.id).select();
         if (res.error || !res.data || !res.data.length) throw new Error(res.error ? res.error.message : '该记录不在你的权限范围内');
-        await loadTable('health_records', 'primary_date');
-        var back = bucket('health_records').rows.filter(function (r) { return String(r.id) === String(rec.id); })[0];
+        await loadTable('documents', 'primary_date');
+        var back = bucket('documents').rows.filter(function (r) { return String(r.id) === String(rec.id); })[0];
         m.textContent = '已补传 ' + (back ? attachmentsOf(back).length : next.length) + ' 个附件，同一份档案已更新，未新增重复记录。';
         if (back) { renderDocBody(back); bindDocViewer(back, 'doc'); }
       } catch (e) {
@@ -4598,7 +4605,7 @@ function renderReceipts() {
   /* 这个抽屉只有一个入口：概览那张「已记录医疗费用」卡片。
      卡片按所选成员算，抽屉却读整表 —— 于是同一次点击前后出现两个总额，
      而且抽屉里不显示任何筛选说明。两边必须同源（§6 交付说明也这么写）。 */
-  var rows = bucket('health_records').rows.filter(function (r) {
+  var rows = bucket('documents').rows.filter(function (r) {
     return L.personMatches(r, S.personView);
   });
   var fees = L.buildFees(rows);

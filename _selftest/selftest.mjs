@@ -160,8 +160,8 @@ check('侧栏显示本机磁盘存储而非账号', /本机磁盘存储/.test(in
 check('六个导航入口齐全（含新增的成员管理）', init.navCount === 6, init.navCount);
 check('四张表读取状态正常', init.summary && Object.values(init.summary.tables).every(t => t.state === 'ok'),
   JSON.stringify(init.summary && init.summary.tables));
-check('首次进入即写入预置指标目录', init.summary && init.summary.tables.indicator_catalog.count >= 15,
-  init.summary && init.summary.tables.indicator_catalog.count);
+check('首次进入即写入预置指标目录', init.summary && init.summary.tables.indicators.count >= 15,
+  init.summary && init.summary.tables.indicators.count);
 
 /* ================= 2. 零外部依赖 ================= */
 check('未发起任何外部网络请求', external === 0, external ? externalUrls.join(' | ') : '0 个');
@@ -211,10 +211,10 @@ await page.screenshot({ path: OUT + '02-import-drawer.png' });
 await page.evaluate(() => document.getElementById('btnImportSave').click());
 await sleep(3500);
 const afterImport = await page.evaluate(() => window.__hrwDebug.summary());
-check('导入后健康档案 1 条', afterImport.tables.health_records.count === 1, afterImport.tables.health_records.count);
+check('导入后健康档案 1 条', afterImport.tables.documents.count === 1, afterImport.tables.documents.count);
 
 const rec = await page.evaluate(() => {
-  const r = window.__hrwDebug.state.tables.health_records.rows[0] || {};
+  const r = window.__hrwDebug.state.tables.documents.rows[0] || {};
   const a = r.source_attachments || [];
   return {
     type: r.document_type, date: r.primary_date, status: r.date_status, title: r.title,
@@ -237,9 +237,9 @@ say('=== 4. 刷新后仍在（数据写在本机磁盘上）===');
 await page.reload({ waitUntil: 'load' });
 await sleep(2500);
 const afterReload = await page.evaluate(() => window.__hrwDebug.summary());
-check('刷新后健康档案仍为 1 条', afterReload.tables.health_records.count === 1, afterReload.tables.health_records.count);
+check('刷新后健康档案仍为 1 条', afterReload.tables.documents.count === 1, afterReload.tables.documents.count);
 const attAfterReload = await page.evaluate(() =>
-  ((window.__hrwDebug.state.tables.health_records.rows[0] || {}).source_attachments || []).length);
+  ((window.__hrwDebug.state.tables.documents.rows[0] || {}).source_attachments || []).length);
 check('刷新后附件仍为 3 个', attAfterReload === 3, attAfterReload);
 say('');
 
@@ -270,11 +270,11 @@ await page.reload({ waitUntil: 'load' });
 await sleep(3200);
 const afterWipe = await page.evaluate(() => {
   const s = window.__hrwDebug.summary();
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   const withAtt = rows.filter(r => (r.source_attachments || []).length);
   return {
-    count: s.tables.health_records.count,
-    catalog: s.tables.indicator_catalog.count,
+    count: s.tables.documents.count,
+    catalog: s.tables.indicators.count,
     attOnRecord: withAtt.length ? withAtt[0].source_attachments.length : 0,
     firstTitle: (rows[0] || {}).title || null
   };
@@ -285,7 +285,7 @@ check('清掉浏览器数据后预置指标目录仍在', afterWipe.catalog >= 1
 check('清掉浏览器数据后附件仍挂在记录上', afterWipe.attOnRecord === 3, afterWipe.attOnRecord);
 
 const attAlive = await page.evaluate(async () => {
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   const withAtt = rows.filter(r => (r.source_attachments || []).length);
   if (!withAtt.length) return { ok: false, why: '没有带附件的记录' };
   const u = await window.__hrwDebug.local.storage.createSignedUrl(withAtt[0].source_attachments[0].path);
@@ -415,10 +415,10 @@ const bulk = await page.evaluate(async () => {
       type_specific_data: { lab_results: [], stress: true }
     });
   }
-  const res = await window.__hrwDebug.local.database.from('health_records').insert(rows).select();
+  const res = await window.__hrwDebug.local.database.from('documents').insert(rows).select();
   if (res.error) return { error: res.error.message };
   await window.__hrwDebug.reload();
-  return { inserted: res.data.length, count: window.__hrwDebug.summary().tables.health_records.count };
+  return { inserted: res.data.length, count: window.__hrwDebug.summary().tables.documents.count };
 });
 say('批量写入：' + JSON.stringify(bulk));
 check('批量写入 120 条成功', bulk.inserted === 120, JSON.stringify(bulk));
@@ -436,8 +436,8 @@ const backup = await page.evaluate(async () => {
   };
 });
 say('备份：' + JSON.stringify({ schema: backup.schema, counts: backup.counts, fileCount: backup.fileCount, bytes: backup.bytes }));
-check('备份 schema 正确', backup.schema === 'health-records-local-backup/v1');
-check('备份含全部四表计数', backup.counts.health_records === 121 && backup.counts.indicator_catalog >= 15);
+check('备份 schema 正确', backup.schema === 'health-records-local-backup/v2');
+check('备份含全部四表计数', backup.counts.documents === 121 && backup.counts.indicators >= 15);
 check('备份已内嵌 3 个附件数据', backup.fileCount === 3 && backup.files.every(f => f.b64 > 0));
 
 const restore = await page.evaluate(async () => {
@@ -445,14 +445,14 @@ const restore = await page.evaluate(async () => {
   await window.__hrwDebug.local.clearAll();
   // 清空后要重新加载，页面里缓存的计数才会归零：与应用内「清空本机数据」的流程一致
   await window.__hrwDebug.reload();
-  const afterClear = window.__hrwDebug.summary().tables.health_records.count;
+  const afterClear = window.__hrwDebug.summary().tables.documents.count;
   const filesAfterClear = (await window.__hrwDebug.local.stats()).files;
   const r = await window.__hrwDebug.local.importBackup(backupObj);
   await window.__hrwDebug.reload();
   const st = await window.__hrwDebug.local.stats();
   return {
     afterClear, filesAfterClear, ok: r.ok, written: r.written, filesWritten: r.filesWritten,
-    count: window.__hrwDebug.summary().tables.health_records.count,
+    count: window.__hrwDebug.summary().tables.documents.count,
     files: st.files
   };
 });
@@ -463,7 +463,7 @@ check('恢复成功且条数与附件数一致', restore.ok && restore.count ===
 
 // 附件在恢复后仍可读取
 const restoredAtt = await page.evaluate(async () => {
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   const withAtt = rows.filter(r => (r.source_attachments || []).length);
   if (!withAtt.length) return { n: 0 };
   const path = withAtt[0].source_attachments[0].path;
@@ -518,15 +518,15 @@ const disk1 = await page.evaluate(async () => {
 say('磁盘状态：' + JSON.stringify({ dir: disk1.data_dir, db_bytes: disk1.db_bytes,
   counts: disk1.counts, files: disk1.files }));
 check('health.db 已写入真实内容', disk1.db_bytes > 8192, disk1.db_bytes);
-const pageCount1 = await page.evaluate(() => window.__hrwDebug.summary().tables.health_records.count);
-check('磁盘上的记录数与页面一致', disk1.counts.health_records === pageCount1 && pageCount1 === 121,
-  '磁盘 ' + disk1.counts.health_records + ' vs 页面 ' + pageCount1);
+const pageCount1 = await page.evaluate(() => window.__hrwDebug.summary().tables.documents.count);
+check('磁盘上的记录数与页面一致', disk1.counts.documents === pageCount1 && pageCount1 === 121,
+  '磁盘 ' + disk1.counts.documents + ' vs 页面 ' + pageCount1);
 check('附件以磁盘文件形式留存', disk1.files === 3, disk1.files);
 say('');
 
 /* ================= 10. 在线解析（全app唯一联网环节） ================= */
 say('=== 10. 在线解析上传（唯一联网环节）===');
-const countBeforeParse = (await page.evaluate(() => window.__hrwDebug.summary())).tables.health_records.count;
+const countBeforeParse = (await page.evaluate(() => window.__hrwDebug.summary())).tables.documents.count;
 
 // 上传页每次渲染都会重新探测本机解析接口，而探测要等一次 xParse CLI 自检（冷启动约 3~4 秒）。
 // 按钮在探测出结果前保持禁用：这里先等到按钮真正可用，再去点它。
@@ -580,7 +580,7 @@ say('解析结果：' + JSON.stringify(parsed));
 check('线上解析返回并弹出归档抽屉', parsed.open, parsed.msg || parsed.body);
 check('解析草稿给出可确认的文档类型', parsed.hasPresetSelect, String(parsed.type));
 
-const countDuringDraft = (await page.evaluate(() => window.__hrwDebug.summary())).tables.health_records.count;
+const countDuringDraft = (await page.evaluate(() => window.__hrwDebug.summary())).tables.documents.count;
 check('解析结果只进草稿、不自动写档案', countDuringDraft === countBeforeParse,
   countBeforeParse + ' → ' + countDuringDraft);
 await page.screenshot({ path: OUT + '07-parse-draft.png' });
@@ -589,12 +589,12 @@ await page.screenshot({ path: OUT + '07-parse-draft.png' });
 await page.evaluate(() => document.getElementById('btnImportSave').click());
 await sleep(4500);
 const afterParseSave = await page.evaluate(() => {
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   // 取主键最大的那条，确保验的是刚写进去的解析记录，而不是前面导入的档案
   const maxId = rows.reduce((a, r) => Math.max(a, r.id || 0), 0);
   const last = rows.filter(r => r.id === maxId)[0] || {};
   return {
-    count: window.__hrwDebug.summary().tables.health_records.count,
+    count: window.__hrwDebug.summary().tables.documents.count,
     id: maxId,
     textLen: (last.parsed_content || '').length,
     atts: (last.source_attachments || []).length,
@@ -635,7 +635,7 @@ check('页面上能直接看到这次解析的文件名与字数',
 /* ---- 10.6 结构化入口与模型未配置时的表现 ---- */
 say('=== 10.6 智能结构化入口 ===');
 const structTarget = await page.evaluate(() => {
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   return rows.reduce((a, r) => Math.max(a, r.id || 0), 0);
 });
 await page.evaluate((id) => window.__hrwDebug.openDoc(id, '自测'), structTarget);
@@ -701,7 +701,7 @@ check('抽屉里写明不需要密钥、且会先在本机脱敏',
   handOpen.text);
 
 const packed = await page.evaluate(async () => {
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   const id = rows.reduce((a, r) => Math.max(a, r.id || 0), 0);
   const rec = rows.find(x => String(x.id) === String(id));
   const raw = String((rec && rec.parsed_content) || '');
@@ -778,7 +778,7 @@ const applied = await page.evaluate(async () => {
   const b = document.getElementById('btnStructApply');
   if (b) b.click();
   await new Promise(r => setTimeout(r, 1800));
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   const id = rows.reduce((a, r) => Math.max(a, r.id || 0), 0);
   const rec = rows.find(x => String(x.id) === String(id));
   const tsd = (rec && rec.type_specific_data) || {};
@@ -830,7 +830,7 @@ check('侧栏出现「成员管理」入口', personsHome.navVisible, personsHom
 
 // 每条记录在处理前先记下待处理数：批量归属要用到
 const beforeN = await page.evaluate(() =>
-  window.__hrwDebug.state.tables.health_records.rows.filter(
+  window.__hrwDebug.state.tables.documents.rows.filter(
     r => r.person_id === null || r.person_id === undefined || r.person_id === '').length);
 say('处理前未指定归属的档案数：' + beforeN);
 check('页面上如实显示了待归属数量',
@@ -916,11 +916,11 @@ check('确认后成员真的被删除', addDel.final === 6, JSON.stringify(addDe
 
 // 归档时选成员：写入的记录必须真的带上归属
 const archivedWithPerson = await page.evaluate(async () => {
-  const before = window.__hrwDebug.state.tables.health_records.rows.length;
+  const before = window.__hrwDebug.state.tables.documents.rows.length;
   window.__hrwDebug.openImportDrawer(null, {
     files: [],
     payload: {
-      target: 'health_records',
+      target: 'documents',
       records: [{
         document_type: '检验报告', primary_date: '2026-01-15', date_status: '已确认',
         title: '成员的指定归档（自测）', source_file: 'selftest-person.txt',
@@ -938,7 +938,7 @@ const archivedWithPerson = await page.evaluate(async () => {
   await new Promise(r => setTimeout(r, 400));
   document.getElementById('btnImportSave').click();
   await new Promise(r => setTimeout(r, 2600));
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   const hit = rows.filter(r => String(r.title) === '成员的指定归档（自测）');
   return {
     before, after: rows.length, hit: hit.length,
@@ -1021,7 +1021,7 @@ check('原始资料档案页也能按成员筛选',
 
 // 详情页显示归属成员
 const detailPerson = await page.evaluate(async () => {
-  const hit = window.__hrwDebug.state.tables.health_records.rows
+  const hit = window.__hrwDebug.state.tables.documents.rows
     .find(r => String(r.title) === '成员的指定归档（自测）');
   window.__hrwDebug.openDoc(hit.id, '自测');
   await new Promise(r => setTimeout(r, 700));
@@ -1044,7 +1044,7 @@ const batch = await page.evaluate(async () => {
   const confirmShown = !!document.getElementById('psAssignConfirm');
   document.getElementById('psAssignConfirm').click();
   await new Promise(r => setTimeout(r, 2600));
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   const unassigned = rows.filter(r => r.person_id === null || r.person_id === undefined || r.person_id === '').length;
   return {
     has, confirmShown, unassigned, total: rows.length,
@@ -1074,7 +1074,7 @@ check('导出的备份里带上成员名单',
 // 删除成员必须兑现页面文案的承诺：名下档案留下来、改为「未指定」。
 // 只删名单不解除归属的话，档案会挂着一个已不存在的成员 id，标签与筛选都会空白。
 const delCascade = await page.evaluate(async () => {
-  const before = window.__hrwDebug.state.tables.health_records.rows;
+  const before = window.__hrwDebug.state.tables.documents.rows;
   const beforeMine = before.filter(r => Number(r.person_id) === 2).length;
   window.__hrwDebug.go('persons');
   await new Promise(r => setTimeout(r, 800));
@@ -1086,7 +1086,7 @@ const delCascade = await page.evaluate(async () => {
   if (!cf) return { ok: false, why: 'no-confirm-btn' };
   cf.click();
   await new Promise(r => setTimeout(r, 2600));
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   return {
     ok: true, beforeMine,
     stillMine: rows.filter(r => Number(r.person_id) === 2).length,
@@ -1115,7 +1115,7 @@ const fileGone = async p => {
   } catch (e) { return false; }
 };
 const serverRows = async () => {
-  const r = await fetch(BASE + 'api/db/rows?table=health_records');
+  const r = await fetch(BASE + 'api/db/rows?table=documents');
   return (await r.json()).rows || [];
 };
 
@@ -1128,7 +1128,7 @@ const delCase = await page.evaluate(async () => {
       if (up.error) return { ok: false, why: 'upload: ' + up.error.message };
     }
     const ins = async (title, paths) => {
-      const r = await D.database.from('health_records').insert({
+      const r = await D.database.from('documents').insert({
         document_type: '体检报告', title: title, primary_date: '2024-01-05',
         date_status: '已确认', person_id: 1, hospital: '虚构医院',
         source_attachments: paths.map(p => ({
@@ -1145,7 +1145,7 @@ const delCase = await page.evaluate(async () => {
     // 真实导入流程末尾会 loadTable，夹具同样得走这一步才有可比对的 DOM。
     // id 一律按标题回读服务端真正存进去的那个，不拿本地预分配的号去比。
     await window.__hrwDebug.reload();
-    const rows = window.__hrwDebug.state.tables.health_records.rows;
+    const rows = window.__hrwDebug.state.tables.documents.rows;
     const byTitle = t => { const r = rows.find(x => x.title === t); return r ? r.id : null; };
     return {
       ok: true, solo: byTitle('删除用例·独占附件'),
@@ -1267,13 +1267,13 @@ const reassign = await page.evaluate(async () => {
   // 这两者别混用：门面上没有 state / openDoc。
   const cloud = window.__hrwDebug.local;
   const dbg = window.__hrwDebug;
-  const ins = await cloud.database.from('health_records').insert({
+  const ins = await cloud.database.from('documents').insert({
     document_type: '体检报告', title: '改派用例', primary_date: '2024-02-02',
     date_status: '已确认', person_id: 1, source_attachments: []
   }).select();
   if (ins.error) return { ok: false, why: 'insert: ' + ins.error.message };
   await dbg.reload();
-  const rows = dbg.state.tables.health_records.rows;
+  const rows = dbg.state.tables.documents.rows;
   const mine = rows.filter(r => r.title === '改派用例');
   if (!mine.length) return { ok: false, why: '回读不到刚插入的改派夹具' };
   const id = mine[0].id;
@@ -1285,7 +1285,7 @@ const reassign = await page.evaluate(async () => {
   sel.value = '3';
   sel.dispatchEvent(new Event('change', { bubbles: true }));
   await new Promise(r => setTimeout(r, 2200));
-  const rec = dbg.state.tables.health_records.rows.find(r => Number(r.id) === Number(id));
+  const rec = dbg.state.tables.documents.rows.find(r => Number(r.id) === Number(id));
   return {
     ok: true, id, before,
     personName: (dbg.persons().find(p => Number(p.id) === 3) || {}).name,
@@ -1342,7 +1342,7 @@ const backToNone = await page.evaluate(async id => {
   sel.value = '';
   sel.dispatchEvent(new Event('change', { bubbles: true }));
   await new Promise(r => setTimeout(r, 2200));
-  const rec = window.__hrwDebug.state.tables.health_records.rows.find(r => Number(r.id) === Number(id));
+  const rec = window.__hrwDebug.state.tables.documents.rows.find(r => Number(r.id) === Number(id));
   return { ok: true, after: rec ? rec.person_id : 'gone' };
 }, reassign.id);
 check('也能改回「未指定」', backToNone.ok &&
@@ -1384,7 +1384,7 @@ const draftType = await page.evaluate(async () => {
   await window.__hrwDebug.openImportDrawer(null, {
     files: [],
     payload: {
-      target: 'health_records',
+      target: 'documents',
       records: [{
         document_type: '其他医疗资料', primary_date: null, date_status: '日期待确认',
         title: null, source_file: '类型用例.pdf', source_attachments: [],
@@ -1418,7 +1418,7 @@ say('=== 10.12 手工编辑记录信息与留痕 ===');
 const editCase = await page.evaluate(async () => {
   try {
     const D = window.__hrwDebug.local;
-    const ins = await D.database.from('health_records').insert({
+    const ins = await D.database.from('documents').insert({
       document_type: '体检报告', title: '编辑用例·体检报告书', primary_date: '2024-06-01',
       date_status: '已确认', hospital: '瑞慈体检中心', department: '总检', doctor: '张医生',
       amount: 300, source_file: 'edit-case.pdf', parse_status: '已归档', person_id: 1,
@@ -1436,7 +1436,7 @@ const editCase = await page.evaluate(async () => {
     }).select();
     if (ins.error) return { ok: false, why: 'insert: ' + ins.error.message };
     await window.__hrwDebug.reload();
-    const rows = window.__hrwDebug.state.tables.health_records.rows;
+    const rows = window.__hrwDebug.state.tables.documents.rows;
     const mine = rows.filter(r => r.title === '编辑用例·体检报告书');
     if (!mine.length) return { ok: false, why: '回读不到编辑夹具' };
     return { ok: true, id: mine[0].id };
@@ -1486,7 +1486,7 @@ const saved = await page.evaluate(async id => {
   document.getElementById('reDoctor').value = '李医生';
   document.getElementById('btnRecEditSave').click();
   await new Promise(r => setTimeout(r, 2400));
-  const rec = window.__hrwDebug.state.tables.health_records.rows.find(r => Number(r.id) === Number(id));
+  const rec = window.__hrwDebug.state.tables.documents.rows.find(r => Number(r.id) === Number(id));
   return {
     hospital: rec ? rec.hospital : null, doctor: rec ? rec.doctor : null,
     title: rec ? rec.title : null, amount: rec ? rec.amount : null,
@@ -1533,7 +1533,7 @@ const dateEdit = await page.evaluate(async id => {
   document.getElementById('reDate').value = '2023-03-07';
   document.getElementById('btnRecEditSave').click();
   await new Promise(r => setTimeout(r, 2200));
-  const rec = window.__hrwDebug.state.tables.health_records.rows.find(r => Number(r.id) === Number(id));
+  const rec = window.__hrwDebug.state.tables.documents.rows.find(r => Number(r.id) === Number(id));
   return { hintText: hintText, date: rec.primary_date, status: rec.date_status };
 }, editCase.id);
 check('改日期前界面就说明了它会影响统计口径',
@@ -1553,7 +1553,7 @@ const cellEdit = await page.evaluate(async id => {
   inp.value = '138';
   document.getElementById('tsInputSave').click();
   await new Promise(r => setTimeout(r, 2200));
-  const rec = window.__hrwDebug.state.tables.health_records.rows.find(r => Number(r.id) === Number(id));
+  const rec = window.__hrwDebug.state.tables.documents.rows.find(r => Number(r.id) === Number(id));
   const row = rec.type_specific_data.lab_results[0];
   return {
     ok: true, old: old, result: row.result, name: row.name, unit: row.unit,
@@ -1577,7 +1577,7 @@ const qualEdit = await page.evaluate(async id => {
   document.getElementById('tsInput').value = '未见异常';
   document.getElementById('tsInputSave').click();
   await new Promise(r => setTimeout(r, 2200));
-  const rec = window.__hrwDebug.state.tables.health_records.rows.find(r => Number(r.id) === Number(id));
+  const rec = window.__hrwDebug.state.tables.documents.rows.find(r => Number(r.id) === Number(id));
   const row = rec.type_specific_data.lab_results[1];
   const pts = (window.__hrwDebug.indicatorPointsFor ? window.__hrwDebug.indicatorPointsFor('血糖') : null);
   return { result: row.result, flag: row.flag, note: row.review || row.note || '', pts: pts };
@@ -1593,7 +1593,7 @@ const examEdit = await page.evaluate(async id => {
   document.getElementById('tsInput').value = '肝、胆、脾、胰、肾未见明显异常';
   document.getElementById('tsInputSave').click();
   await new Promise(r => setTimeout(r, 2200));
-  const rec = window.__hrwDebug.state.tables.health_records.rows.find(r => Number(r.id) === Number(id));
+  const rec = window.__hrwDebug.state.tables.documents.rows.find(r => Number(r.id) === Number(id));
   return { ok: true, findings: rec.type_specific_data.exams[0].findings };
 }, editCase.id);
 // findings 在数据里是「一行一项」的数组，改完必须仍是数组（写成字符串渲染处会显示"原报告未提供"）
@@ -1608,7 +1608,7 @@ const moneyEdit = await page.evaluate(async id => {
   document.getElementById('reTsAmount').value = '260';
   document.getElementById('btnRecEditSave').click();
   await new Promise(r => setTimeout(r, 2200));
-  const rec = window.__hrwDebug.state.tables.health_records.rows.find(r => Number(r.id) === Number(id));
+  const rec = window.__hrwDebug.state.tables.documents.rows.find(r => Number(r.id) === Number(id));
   const card = document.getElementById('docBody').textContent.replace(/\s+/g, ' ');
   return { amount: rec.amount, ts: rec.type_specific_data.total_amount, conflict: /不一致|待核对/.test(card) };
 }, editCase.id);
@@ -1620,13 +1620,13 @@ check('两处金额不一致时仍然如实标出，不悄悄取一个', moneyEd
 /* --- E0. 没有解析原文的记录不得留下可点的写入抽屉 --- */
 const staleGuard = await page.evaluate(async () => {
   const cloud = window.__hrwDebug.local;
-  const ins = await cloud.database.from('health_records').insert({
+  const ins = await cloud.database.from('documents').insert({
     document_type: '体检报告', title: '无原文夹具', primary_date: '2024-04-04',
     date_status: '已确认', person_id: 1, parse_status: '已归档', source_attachments: []
   }).select();
   if (ins.error) return { ok: false, why: ins.error.message };
   await window.__hrwDebug.reload();
-  const id = window.__hrwDebug.state.tables.health_records.rows
+  const id = window.__hrwDebug.state.tables.documents.rows
     .filter(r => r.title === '无原文夹具')[0].id;
   // 先正常打开一次，制造「已有预览留在抽屉里」的前提
   window.__hrwDebug.openDoc(id, '健康档案');
@@ -1635,7 +1635,7 @@ const staleGuard = await page.evaluate(async () => {
 });
 const noSourceGuard = await page.evaluate(async () => {
   document.getElementById('drawer-struct').classList.add('on');
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   const noText = rows.filter(r => !String(r.parsed_content || '').trim())[0];
   if (!noText) return { ok: false, why: '找不到一条没有解析原文的记录' };
   await window.__hrwDebug.openStructDrawer(noText.id);
@@ -1690,7 +1690,7 @@ check('冲突里点名了是哪个字段（不是笼统一句「有差异」）'
 const appliedKeepHuman = await page.evaluate(async id => {
   document.getElementById('btnStructApply').click();
   await new Promise(r => setTimeout(r, 3000));
-  const rec = window.__hrwDebug.state.tables.health_records.rows.find(r => Number(r.id) === Number(id));
+  const rec = window.__hrwDebug.state.tables.documents.rows.find(r => Number(r.id) === Number(id));
   return { type: rec.document_type, lab0: rec.type_specific_data.lab_results[0].result,
            findings: (rec.type_specific_data.exams[0] || {}).findings };
 }, editCase.id);
@@ -1717,7 +1717,7 @@ const appliedTakeModel = await page.evaluate(async (id) => {
   await new Promise(r => setTimeout(r, 300));
   document.getElementById('btnStructApply').click();
   await new Promise(r => setTimeout(r, 3000));
-  const rec = window.__hrwDebug.state.tables.health_records.rows.find(r => Number(r.id) === Number(id));
+  const rec = window.__hrwDebug.state.tables.documents.rows.find(r => Number(r.id) === Number(id));
   const last = (rec.manual_edits || []).slice(-1)[0] || {};
   return { ok: true, type: rec.document_type, lastFrom: last.from };
 }, editCase.id);
@@ -1802,7 +1802,7 @@ check('全部关掉后滚动锁必须复原',
 // 正向复现：详情层内再打开一条记录（下钻），返回后不该留下锁残留
 const drill = await page.evaluate(async () => {
  try {
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   if (rows.length < 2) return { ok: false, why: '至少需要两条档案才能测下钻' };
   // 用原始资料档案页：它把命中行全列出来，高度可控；时间轴默认只展开最近 10 个
   // 日期组，数据少时整页不足一屏，滚不动就等于测不到恢复（别拿它当夹具）。
@@ -1851,7 +1851,7 @@ const ovCase = await page.evaluate(async () => {
   try {
     const cloud = window.__hrwDebug.local;
     const mk = async (title, pid, date, val) => {
-      const r = await cloud.database.from('health_records').insert({
+      const r = await cloud.database.from('documents').insert({
         document_type: '体检报告', title: title, primary_date: date, date_status: '已确认',
         person_id: pid, amount: pid === 1 ? 200 : (pid === 2 ? 300 : null),
         source_attachments: [], parsed_content: '原文 ' + title,
@@ -1922,7 +1922,7 @@ check('切回「全部」档案数不小于任何单人视图',
   JSON.stringify({ all: all.n, mine: mine.n, spouse: spouse.n, none: none.n }));
 
 const srvCounts = await page.evaluate(async () => {
-  const rows = window.__hrwDebug.state.tables.health_records.rows;
+  const rows = window.__hrwDebug.state.tables.documents.rows;
   const cnt = pid => rows.filter(r => (pid === 0
     ? (r.person_id === null || r.person_id === undefined || r.person_id === '')
     : Number(r.person_id) === pid)).length;
@@ -1932,64 +1932,88 @@ check('切换器显示的条数与服务端真实归属一致（不是页面自�
   mine.n === srvCounts.p1 && spouse.n === srvCounts.p5 && none.n === srvCounts.none,
   JSON.stringify({ ui: [mine.n, spouse.n, none.n], srv: srvCounts }));
 
-// 关注指标按人：给「我」加一项，切到老婆不该被勾上
+// 关注指标按人：给「我」加一项，切到妈妈不该被勾上。
+// V2 起关注落在 watched_indicators（每人一份），入口在「关注指标」卡片上；
+// 旧的「全家共用 followers」入口已随 V1 一起下线。
 const followPerPerson = await page.evaluate(async () => {
-  const cloud = window.__hrwDebug.local;
+  const setView = async v => {
+    const b = [...document.querySelectorAll('#s-overview [data-ps]')].find(x => x.textContent.trim() === v);
+    if (b) b.click();
+    await new Promise(r => setTimeout(r, 1300));
+  };
+  const watchedIds = async pid =>
+    ((await (await fetch('/api/watched?person=' + pid)).json()).watched || [])
+      .map(w => Number(w.id));
+  await setView('我');
+  const openBtn = document.getElementById('v2BtnFollow');
+  if (!openBtn) return { ok: false, why: '关注卡片上没有「添加关注」入口' };
+  openBtn.click();
+  await new Promise(r => setTimeout(r, 1400));
+  const head = document.getElementById('followBody').textContent.replace(/\s+/g, ' ');
+  const boxes = [...document.querySelectorAll('#followBody input[data-v2-pick]')];
+  if (!boxes.length) return { ok: false, why: '关注抽屉里没有可勾选的指标' };
+  const target = boxes.find(b => !b.checked);
+  if (!target) return { ok: false, why: '找不到一个未勾选项' };
+  const id = Number(target.getAttribute('data-v2-pick'));
+  target.checked = true;
+  document.getElementById('v2FollowSave').click();
+  await new Promise(r => setTimeout(r, 2400));
+  const mineIds = await watchedIds(1);
+
+  await setView('妈妈');
+  const btn2 = document.getElementById('v2BtnFollow');
+  if (!btn2) return { ok: false, why: '切成员后「添加关注」入口消失' };
+  btn2.click();
+  await new Promise(r => setTimeout(r, 1500));
+  const sBox = document.querySelector('#followBody input[data-v2-pick="' + id + '"]');
+  const spouseChecked = sBox ? sBox.checked : 'missing';
+  const note = document.getElementById('followBody').textContent.replace(/\s+/g, ' ');
+  const spouseIds = await watchedIds(5);
+  window.__hrwDebug.closeDrawers();
+  await setView('全部');
+  await new Promise(r => setTimeout(r, 900));
+  const cardButtons = [...document.querySelectorAll('#cardFollow button')].map(b => b.id);
+  return {
+    ok: true, id, mineIds, spouseIds, spouseChecked,
+    headMentionsWho: /我/.test(head), spouseNote: /妈妈/.test(note), cardButtons
+  };
+});
+check('关注入口是 V2 的按人关注卡（旧的全家关注入口已下线）',
+  followPerPerson.ok && followPerPerson.cardButtons.indexOf('v2BtnFollow') >= 0
+  && followPerPerson.cardButtons.indexOf('btnFollowMgr') < 0,
+  JSON.stringify(followPerPerson).slice(0, 240));
+check('给「我」勾选的关注写进 watched_indicators（服务端查得到）',
+  followPerPerson.ok && followPerPerson.mineIds.indexOf(followPerPerson.id) >= 0,
+  JSON.stringify(followPerPerson).slice(0, 240));
+check('同一项在「妈妈」的关注里没被勾上（不串人）',
+  followPerPerson.ok && followPerPerson.spouseChecked === false
+  && followPerPerson.spouseIds.indexOf(followPerPerson.id) < 0,
+  JSON.stringify(followPerPerson).slice(0, 240));
+check('关注抽屉说明当前在编辑谁的清单',
+  followPerPerson.ok && followPerPerson.headMentionsWho && followPerPerson.spouseNote,
+  JSON.stringify(followPerPerson).slice(0, 220));
+
+// 日常录入必须带归属。
+// V2 化之后概览的关注表由 /api/watched 驱动（每人一份关注清单），所以「按人隔离」
+// 要在两处同时成立：① 记录本身写进 manual_records.person_id；② 它同步出来的观测值
+// 只会出现在那个人的关注卡上。旧写法只盯 overview 整页文本，V2 用关注卡判定。
+const daily = await page.evaluate(async () => {
   const setView = async v => {
     const b = [...document.querySelectorAll('#s-overview [data-ps]')].find(x => x.textContent.trim() === v);
     if (b) b.click();
     await new Promise(r => setTimeout(r, 1000));
   };
-  await setView('我');
-  document.getElementById('btnFollowMgr').click();
-  await new Promise(r => setTimeout(r, 900));
-  const head = document.getElementById('followBody').textContent.replace(/\s+/g, ' ');
-  const boxes = [...document.querySelectorAll('#followBody input[data-follow]')];
-  const target = boxes.find(b => !b.checked);
-  if (!target) return { ok: false, why: '找不到一个未勾选项' };
-  const key = target.getAttribute('data-follow');
-  target.checked = true;
-  document.getElementById('btnFollowSave').click();
-  await new Promise(r => setTimeout(r, 1800));
-  const raw = (window.__hrwDebug.state.tables.indicator_catalog.rows || [])
-    .find(r => r.key === key) || {};
-  await setView('妈妈');
-  document.getElementById('btnFollowMgr').click();
-  await new Promise(r => setTimeout(r, 900));
-  const spouseChecked = (() => {
-    const b = document.querySelector('#followBody input[data-follow="' + key + '"]');
-    return b ? b.checked : 'missing';
-  })();
-  const note = document.getElementById('followBody').textContent.replace(/\s+/g, ' ');
-  window.__hrwDebug.closeDrawers();
-  await setView('全部');
-  return {
-    ok: true, key, mineChecked: true, spouseChecked,
-    followers: raw.followers, globalFollowed: raw.followed,
-    headMentionsWho: /我/.test(head), spouseNote: /妈妈/.test(note)
-  };
-});
-check('关注抽屉说明当前在编辑谁的清单',
-  followPerPerson.ok && followPerPerson.headMentionsWho && followPerPerson.spouseNote,
-  JSON.stringify(followPerPerson).slice(0, 200));
-check('给「我」勾选项写进 followers，不是全局 followed',
-  followPerPerson.ok && Array.isArray(followPerPerson.followers)
-  && followPerPerson.followers.indexOf(1) >= 0,
-  JSON.stringify(followPerPerson).slice(0, 220));
-check('同一项在「妈妈」的清单里没被勾上（不串人）',
-  followPerPerson.ok && followPerPerson.spouseChecked === false,
-  JSON.stringify(followPerPerson).slice(0, 220));
-
-// 日常录入必须带归属
-const daily = await page.evaluate(async () => {
-  const setView = async v => {
-    const b = [...document.querySelectorAll('#s-overview [data-ps]')].find(x => x.textContent.trim() === v);
-    if (b) b.click();
-    await new Promise(r => setTimeout(r, 900));
-  };
+  const cardRows = () => [...document.querySelectorAll('#cardFollow tbody tr')].map(tr => {
+    const td = tr.querySelectorAll('td');
+    return {
+      name: td[0] ? td[0].textContent.replace(/\s+/g, ' ').trim() : '',
+      latest: td[2] ? td[2].textContent.replace(/\s+/g, ' ').trim() : ''
+    };
+  });
   await setView('爸爸');
-  const cat = window.__hrwDebug.state.tables.indicator_catalog.rows.find(c => c.type === '数值');
-  // 概览默认只看近 12 个月，日期用一年前会被范围滤掉，latestCell 就是空的
+  // V2 的目录行按 is_text 区分数值 / 文本（旧版是 type: '数值'）
+  const cat = window.__hrwDebug.state.tables.indicators.rows.find(c => c.key && !c.is_text);
+  if (!cat) return { ok: false, why: '目录里没有可录入的数值型指标' };
   window.__hrwDebug.openDailyDrawer(cat.key, new Date().toISOString().slice(0, 10));
   await new Promise(r => setTimeout(r, 900));
   const sel = document.getElementById('dyPerson');
@@ -1998,27 +2022,33 @@ const daily = await page.evaluate(async () => {
   document.getElementById('dyV1').value = '5.9';
   document.getElementById('btnDailySave').click();
   await new Promise(r => setTimeout(r, 2200));
-  const rows = window.__hrwDebug.state.tables.daily_indicator_records.rows;
+  const rows = window.__hrwDebug.state.tables.manual_records.rows;
   const saved = rows[rows.length - 1] || {};
+  // 手填的点要进趋势/关注表，先把这个指标关注到录入时选的那个人身上
+  await fetch('/api/watched/add', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ person_id: Number(saved.person_id), indicator_id: Number(cat.id) })
+  });
   await setView('爸爸');
-  const txtDad = document.getElementById('s-overview').textContent.replace(/\s+/g, ' ');
+  const dadRows = cardRows();
   await setView('妈妈');
-  const txtMom = document.getElementById('s-overview').textContent.replace(/\s+/g, ' ');
+  const momRows = cardRows();
   return {
     ok: true, def, savedPerson: saved.person_id, key: saved.indicator_key,
-    dadHas: txtDad.indexOf('5.9') >= 0, momHas: txtMom.indexOf('5.9') >= 0
+    indName: cat.name,
+    dadHas: dadRows.some(r => r.name === cat.name && r.latest.indexOf('5.9') >= 0),
+    momHas: momRows.some(r => r.name === cat.name)
   };
 });
 check('日常录入有归属下拉，且默认取概览当前成员',
   daily.ok && String(daily.def) === String(daily.savedPerson) && Number(daily.savedPerson) > 0,
   JSON.stringify(daily).slice(0, 220));
-check('手动记录按人隔离：爸爸看得到自己那条，妈妈看不到',
+check('手动记录按人隔离：爸爸的关注卡看得到自己那条，妈妈那边没有这一行',
   daily.ok && daily.dadHas === true && daily.momHas === false, JSON.stringify(daily).slice(0, 220));
 
-// 新成员继承「我」的关注集合；删成员后 id 被清掉
+// 新增成员 / 删除成员与关注清单的关系（V2 每人一份，存在 watched_indicators）
 const memberFollow = await page.evaluate(async () => {
-  const before = (window.__hrwDebug.state.tables.indicator_catalog.rows || [])
-    .filter(r => Array.isArray(r.followers) && r.followers.indexOf(1) >= 0).length;
+  const mineBefore = (await (await fetch('/api/watched?person=1')).json()).watched || [];
   window.__hrwDebug.go('persons');
   await new Promise(r => setTimeout(r, 800));
   const inp = document.getElementById('psNewName');
@@ -2029,44 +2059,55 @@ const memberFollow = await page.evaluate(async () => {
   await new Promise(r => setTimeout(r, 2600));
   const persons = window.__hrwDebug.persons();
   const gid = (persons.find(p => p.name === '爷爷') || {}).id;
-  const rows = window.__hrwDebug.state.tables.indicator_catalog.rows || [];
-  const inherited = rows.filter(r => Array.isArray(r.followers) && r.followers.indexOf(gid) >= 0).length;
-  // 删掉他，followers 里不该再留着这个 id
+  // 新成员起步是空白清单：关注按人保存，不会凭空继承别人的
+  const gidWatched = (await (await fetch('/api/watched?person=' + gid)).json()).watched || [];
+  // 先给新成员挂一项关注，再删掉他，看服务端有没有留下孤儿关注行
+  if (gidWatched.length === 0 && mineBefore.length) {
+    await fetch('/api/watched/add', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_id: gid, indicator_id: mineBefore[0].id })
+    });
+  }
   const del = document.querySelector('#s-persons [data-person-del="' + gid + '"]');
   del.click();
   await new Promise(r => setTimeout(r, 600));
   document.querySelector('#s-persons [data-person-del-confirm="' + gid + '"]').click();
   await new Promise(r => setTimeout(r, 2800));
-  const rows2 = window.__hrwDebug.state.tables.indicator_catalog.rows || [];
-  const residue = rows2.filter(r => Array.isArray(r.followers) && r.followers.indexOf(gid) >= 0).length;
+  const residue = ((await (await fetch('/api/watched?person=' + gid)).json()).watched || []).length;
   window.__hrwDebug.go('overview');
   await new Promise(r => setTimeout(r, 700));
-  return { before, gid, inherited, residue, stillListed: window.__hrwDebug.persons().some(p => p.id === gid) };
+  return {
+    mineCount: mineBefore.length, gid, newMemberWatched: gidWatched.length, residue,
+    stillListed: window.__hrwDebug.persons().some(p => p.id === gid)
+  };
 });
-check('新成员继承「我」的关注项数量（不做空白目录）',
-  memberFollow.before > 0 && memberFollow.inherited === memberFollow.before,
+check('新成员起步是空白关注清单（按人保存，不凭空继承别人的）',
+  memberFollow.mineCount > 0 && memberFollow.newMemberWatched === 0,
   JSON.stringify(memberFollow));
-check('删除成员后其 id 从所有 followers 里清干净',
+check('删除成员后服务端不留该成员的关注行（id 复用时不会被继承）',
   memberFollow.residue === 0 && memberFollow.stillListed === false,
   JSON.stringify(memberFollow));
 
 const noLeak = await page.evaluate(async () => {
-  const rows = window.__hrwDebug.state.tables.indicator_catalog.rows || [];
-  const withFollowers = rows.filter(r => Array.isArray(r.followers)).length;
-  const legacy = rows.filter(r => !Array.isArray(r.followers)).length;
-  return { total: rows.length, withFollowers, legacy };
+  // V2 起目录行不再携带 followers（那是 V1 的「全家共用」写法），
+  // 关注关系只有 watched_indicators 一份真源。
+  const rows = window.__hrwDebug.state.tables.indicators.rows || [];
+  const withLegacyFollowers = rows.filter(r => Array.isArray(r.followers)).length;
+  const sample = rows[0] || {};
+  return { total: rows.length, withLegacyFollowers, fields: Object.keys(sample).sort() };
 });
-check('目录行已全部带上 followers（迁移覆盖每一行）',
-  noLeak.legacy === 0 && noLeak.withFollowers === noLeak.total, JSON.stringify(noLeak));
+check('目录行不再谎报 followers（关注只有 watched_indicators 一份真源）',
+  noLeak.total > 0 && noLeak.withLegacyFollowers === 0, JSON.stringify(noLeak).slice(0, 220));
 await page.screenshot({ path: OUT + '15-person-view.png' });
 say('');
 
 /* ---- 10.15 概览数字与显示的对应关系 ----
-   需求方实拍四条：① 详情里「历史记录」出现两遍；② 「次数」列把"趋势连线点数"
-   当成"结果记录数"报（指令 §16 要求文案与口径一致）；③ 「次数」列不吃时间范围，
-   整行都「暂无记录」了它还写着 1；④ 血脂行把四个分项的值挤进一格，而分项在同表各有行。
-   夹具特意做成「连线点数 ≠ 记录数」「范围内记录数 ≠ 全量记录数」，否则新旧口径给出同一个
-   数字，断言就白写了。 */
+   V2 化之后，概览关注表由后端 /api/watched 驱动（列：指标名/分类/最新结果/最新日期/点数/小趋势），
+   指标详情由 /api/trend 驱动。这一节盯四件事：① 详情里「历史记录」只出现一次；
+   ② 「点数」列报的是服务端的有效日期数，不是连线点数、也不等于记录条数；
+   ③ 详情点数吃时间范围（切「近 12 个月」会变小）；④ 血脂四项各自成行，不把四个分项值挤进一格。
+   夹具特意造「同一天两份报告」：库内 4 条观测、3 个有效日期，两种口径必须给出不同的数字，
+   否则新旧说法同值，断言就白写了。 */
 say('=== 10.15 概览次数口径 · 血脂行 · 详情历史卡片 ===');
 
 const countCase = await page.evaluate(async () => {
@@ -2076,11 +2117,12 @@ const countCase = await page.evaluate(async () => {
     const d = new Date(); d.setDate(d.getDate() - offset);
     return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
   };
-  const mk = (title, date, labs) => D.database.from('health_records').insert({
+  const mk = (title, date, labs) => D.database.from('documents').insert({
     document_type: '体检报告', title, primary_date: date, date_status: '已确认',
     hospital: '口径用例体检中心', source_file: 'count-case.pdf', parse_status: '已归档',
     person_id: 1, parsed_content: '【口径用例】', type_specific_data: { structured: true, lab_results: labs }
   }).select();
+  const A = v => ({ name: '口径用例甲', result: v, unit: 'U/L', reference: '0~10', flag: '', panel: '生化-肝功' });
   const lipids = [
     { name: '总胆固醇', result: '5.90', unit: 'mmol/L', reference: '0~5.2', flag: '', panel: '生化-血脂' },
     { name: '甘油三酯', result: '1.20', unit: 'mmol/L', reference: '0~1.7', flag: '', panel: '生化-血脂' },
@@ -2089,98 +2131,136 @@ const countCase = await page.evaluate(async () => {
     // 心电图的 QTC 间期：归一化后含 "tc"，旧别名规则会把它并进总胆固醇
     { name: 'QTC间期', result: '404', unit: 'ms', reference: '', flag: '', panel: '心电图' }
   ];
-  const a = await mk('口径用例·近期', iso(10), [{ name: '空腹血糖', result: '5.10', unit: 'mmol/L', reference: '3.9~6.1', flag: '', panel: '生化-血糖' }].concat(lipids));
-  const b = await mk('口径用例·定性', iso(20), [{ name: '空腹血糖', result: '阴性', unit: '', reference: '阴性', flag: '', panel: '生化-血糖' }]);
-  const c = await mk('口径用例·半年前', iso(200), [{ name: '空腹血糖', result: '6.00', unit: 'mmol/L', reference: '3.9~6.1', flag: '', panel: '生化-血糖' }]);
-  if (a.error || b.error || c.error) return { ok: false, why: 'insert: ' + ((a.error || b.error || c.error) || {}).message };
+  const a = await mk('口径用例·近期', iso(10), [A('1.1')].concat(lipids));
+  const b = await mk('口径用例·同日', iso(10), [A('1.2')]);       // 与 a 同一天：点数要少算一个
+  const c = await mk('口径用例·近期二', iso(20), [A('1.3')]);
+  const d = await mk('口径用例·一年半前', iso(550), [A('1.4')]);
+  const err = a.error || b.error || c.error || d.error;
+  if (err) return { ok: false, why: 'insert: ' + err.message };
   await window.__hrwDebug.reload();
-  const got = window.__hrwDebug.state.tables.health_records.rows
+  const got = window.__hrwDebug.state.tables.documents.rows
     .filter(r => /^口径用例/.test(r.title || '')).length;
-  return { ok: got === 3, got };
+  // V2 概览只显示「已关注」的指标，夹具这几项得先关注到 person 1 才看得见
+  const need = ['口径用例甲', '总胆固醇', '甘油三酯', 'QTC间期'];
+  const look = await (await fetch('/api/indicators?person=1&include_text=1&gender=all')).json();
+  const byName = {};
+  (look.indicators || []).forEach(i => { byName[i.name] = i; });
+  const missing = [];
+  for (const n of need) {
+    if (!byName[n]) { missing.push(n); continue; }
+    await fetch('/api/watched/add', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ person_id: 1, indicator_id: byName[n].id })
+    });
+  }
+  const w = await (await fetch('/api/watched?person=1')).json();
+  const wmap = {};
+  (w.watched || []).forEach(x => {
+    wmap[x.name] = { id: x.id, date_count: x.date_count, last_value: x.last_value };
+  });
+  return { ok: got === 4, got, missing, wmap };
 });
-check('口径夹具就位（3 条档案：近期数值 / 近期定性 / 半年前数值）', countCase.ok === true, JSON.stringify(countCase));
+check('口径夹具就位（4 条档案：同日两份 + 一近期 + 一年半前）', countCase.ok === true,
+  JSON.stringify(countCase).slice(0, 240));
+check('夹具指标已进入「我」的关注卡（同名归一后落在同一指标上）',
+  !!(countCase.wmap && countCase.wmap['口径用例甲'] && countCase.wmap['总胆固醇']),
+  JSON.stringify(countCase.wmap || {}).slice(0, 240));
 
-async function overviewRows(range) {
-  await page.evaluate(async r => {
+/* 读 V2 关注卡：列序 = 指标名 / 分类 / 最新结果 / 最新日期 / 点数 / 小趋势 / 操作 */
+async function followCard(personLabel) {
+  await page.evaluate(async lbl => {
     window.__hrwDebug.go('overview');
-    await new Promise(x => setTimeout(x, 600));
-    const me = [...document.querySelectorAll('#s-overview .person-switch .ps')]
-      .find(b => b.textContent.trim() === '我');
-    if (me) me.click();
     await new Promise(x => setTimeout(x, 700));
-    const btn = document.querySelector('#rangeTabs button[data-range="' + r + '"]');
-    if (btn) btn.click();
-    await new Promise(x => setTimeout(x, 800));
-  }, range);
+    const b = [...document.querySelectorAll('#s-overview [data-ps]')]
+      .find(x => x.textContent.trim() === lbl);
+    if (b) b.click();
+    await new Promise(x => setTimeout(x, 1000));
+  }, personLabel);
   return page.evaluate(() => {
     const out = {};
-    document.querySelectorAll('#s-overview tr[data-ind]').forEach(tr => {
+    document.querySelectorAll('#cardFollow tbody tr').forEach(tr => {
       const td = tr.querySelectorAll('td');
-      out[tr.dataset.ind] = {
-        latest: td[2].textContent.replace(/\s+/g, ' ').trim(),
-        date: td[3].textContent.trim(),
-        countText: td[4].textContent.replace(/\s+/g, ' ').trim(),
-        count: parseInt(td[4].textContent, 10)
+      const btn = tr.querySelector('[data-v2-ind]');
+      const name = td[0] ? td[0].textContent.replace(/\s+/g, ' ').trim() : '';
+      out[name] = {
+        id: btn ? Number(btn.getAttribute('data-v2-ind')) : null,
+        latest: td[2] ? td[2].textContent.replace(/\s+/g, ' ').trim() : '',
+        count: td[4] ? parseInt(td[4].textContent, 10) : NaN,
+        countText: td[4] ? td[4].textContent.replace(/\s+/g, ' ').trim() : ''
       };
     });
     return out;
   });
 }
 
-const r3 = await overviewRows('3');
-const r12 = await overviewRows('12');
-const rAll = await overviewRows('all');
-// 库里同类数据不止本夹具（前面小节也写过血糖项），所以断言全部写成"关系"而不是写死数字：
-// 旧写法取的是全量连线点数，换范围不会变、也不会等于详情的历史条数。
-check('次数列跟着时间范围变（近 3 个月 < 近 12 个月 ≤ 全部；旧写法三档都是同一个全量数）',
-  r3.fbg.count < r12.fbg.count && r12.fbg.count <= rAll.fbg.count,
-  JSON.stringify({ r3: r3.fbg.count, r12: r12.fbg.count, all: rAll.fbg.count }));
-check('次数列文案仍是「结果记录数」，与它实际取的数一致',
-  /结果记录数/.test(r3.fbg.countText || ''), JSON.stringify(r3.fbg));
-check('血脂行的「最新结果」不再挤四个分项值（分项在同表各有独立行）',
-  !/总胆固醇\s*\d/.test(rAll.lipids.latest) && !/甘油三酯\s*\d/.test(rAll.lipids.latest),
-  JSON.stringify(rAll.lipids));
-check('血脂行的次数仍是按有效报告日期去重的检查次数（指令 §16）',
-  /检查次数/.test(rAll.lipids.countText || ''), JSON.stringify(rAll.lipids));
+const card = await followCard('我');
+const A_ID = countCase.wmap && countCase.wmap['口径用例甲'] ? countCase.wmap['口径用例甲'].id : null;
+const aRow = card['口径用例甲'] || null;
 
-async function openDetail(key) {
-  return page.evaluate(async k => {
+check('关注卡的「点数」列 = 服务端的有效日期数（同日两份报告只算一个点）',
+  !!aRow && aRow.count === countCase.wmap['口径用例甲'].date_count
+  && countCase.wmap['口径用例甲'].date_count === 3,
+  JSON.stringify({ cell: aRow && aRow.count, server: countCase.wmap['口径用例甲'].date_count }));
+check('「点数」报的是有效日期数、不是记录条数（库内 4 条观测 / 3 个日期，两种口径必须分开）',
+  !!aRow && aRow.count === 3, JSON.stringify(aRow));
+
+/* 详情：从关注卡里的 id 打开（V2 的入口是 [data-v2-ind]）；range 用后端认识的写法 */
+async function openDetailById(id, range) {
+  const rng = range || 'all';
+  return page.evaluate(async ([iid, want]) => {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
     window.__hrwDebug.closeAllLayers();
-    await new Promise(r => setTimeout(r, 250));
-    const btn = document.querySelector('#s-overview tr[data-ind="' + k + '"] [data-ind-open]');
-    if (!btn) return { err: '没有 ' + k + ' 行' };
+    await wait(300);
+    const btn = document.querySelector('#cardFollow [data-v2-ind="' + iid + '"]');
+    if (!btn) return { err: '关注卡里没有 id=' + iid };
     btn.click();
-    await new Promise(r => setTimeout(r, 1000));
+    await wait(1100);
+    const rb = document.querySelector('#v2IndRange button[data-range="' + want + '"]');
+    if (rb && !rb.classList.contains('on')) { rb.click(); await wait(1100); }
     const heads = [...document.querySelectorAll('#indBody .card-h h3')].map(h => h.textContent.trim());
-    const rows = [...document.querySelectorAll('#indBody .point-list .pr')].map(d =>
-      d.textContent.replace(/\s+/g, ' ').trim());
-    const body = document.getElementById('indBody').textContent.replace(/\s+/g, ' ');
-    return { heads, rows, hasEmpty: /暂无记录/.test(body.slice(0, 900)) };
-  }, key);
+    const rows = [...document.querySelectorAll('#indBody .point-list .pr')].map(x =>
+      x.textContent.replace(/\s+/g, ' ').trim());
+    let pts = null;
+    document.querySelectorAll('#indBody dl.kv dd').forEach(dd => {
+      if (/条观测/.test(dd.textContent)) pts = parseInt(dd.textContent, 10);
+    });
+    return { heads, rows, pts,
+             hasRange: !!document.querySelector('#v2IndRange'),
+             has12m: !!document.querySelector('#v2IndRange button[data-range="12m"]'),
+             srcBtns: document.querySelectorAll('#indBody [data-src-doc]').length };
+  }, [id, rng]);
 }
 
-const fbgDetail = await openDetail('fbg');
+const aAll = await openDetailById(A_ID, 'all');
 check('指标详情的「历史记录」卡片只出现一次（此前整块渲染两遍）',
-  fbgDetail.heads.filter(h => h === '历史记录').length === 1, JSON.stringify(fbgDetail.heads));
-check('表格「次数」列与详情的历史记录条数同源（都是全部记录数）',
-  fbgDetail.rows.length === rAll.fbg.count,
-  JSON.stringify({ detail: fbgDetail.rows.length, table: rAll.fbg.count }));
+  aAll.heads.filter(h => h === '历史记录').length === 1, JSON.stringify(aAll.heads));
+check('详情历史列出全部记录条数（4 条：同日两份各占一条），多于关注卡的有效日期数 3',
+  aAll.rows.length === 4 && aAll.rows.length > aRow.count,
+  JSON.stringify({ rows: aAll.rows.length, cardCount: aRow.count }));
+check('详情顶部「点数」与历史行数同源（同一份 tr.history，不再两处各算一遍）',
+  aAll.pts === aAll.rows.length, JSON.stringify({ pts: aAll.pts, rows: aAll.rows.length }));
+check('范围按钮发的是后端认识的写法（data-range=12m，而不是 12 —— 早前后端只认 12m，这个按钮是空转的）',
+  aAll.has12m === true, JSON.stringify({ hasRange: aAll.hasRange, has12m: aAll.has12m }));
 
-const tcDetail = await openDetail('tc');
+const a12 = await openDetailById(A_ID, '12m');
+check('详情点数吃时间范围：切到「近 12 个月」后一年半前那条被滤掉（4 → 3）',
+  a12.rows.length === 3 && a12.rows.length < aAll.rows.length,
+  JSON.stringify({ all: aAll.rows.length, m12: a12.rows.length }));
+
+check('血脂行不再把四个分项值挤进一格（总胆固醇 / 甘油三酯各占一行，值互不串）',
+  !!card['总胆固醇'] && !!card['甘油三酯']
+  && /5\.9/.test(card['总胆固醇'].latest) && !/甘油三酯|低密度|高密度/.test(card['总胆固醇'].latest)
+  && /1\.2/.test(card['甘油三酯'].latest),
+  JSON.stringify({ tc: card['总胆固醇'], tg: card['甘油三酯'] }));
+
+const tcId = card['总胆固醇'] ? card['总胆固醇'].id : null;
+const tcDetail = tcId ? await openDetailById(tcId, 'all') : { rows: [], srcBtns: 0 };
 check('总胆固醇详情的历史里没有心电图 QTC（404 ms）',
   !tcDetail.rows.some(t => /404/.test(t) || /\bms\b/.test(t)), JSON.stringify(tcDetail.rows));
+check('总胆固醇详情的历史逐条带回来源档案',
+  tcDetail.rows.length > 0 && tcDetail.srcBtns >= tcDetail.rows.length,
+  JSON.stringify({ rows: tcDetail.rows.length, srcBtns: tcDetail.srcBtns }));
 
-const lipDetail = await openDetail('lipids');
-const lipSrcBtns = await page.evaluate(() =>
-  document.querySelectorAll('#indBody [data-src-doc]').length);
-check('血脂详情不再整页「暂无记录」，四项分别成图（组键自己没有点，判空要看分项）',
-  lipDetail.heads.filter(h => h === '血脂四项').length === 1 && !lipDetail.hasEmpty,
-  JSON.stringify(lipDetail.heads));
-check('血脂详情的历史列出全部分项结果并标出项目名，逐条带回来源',
-  lipDetail.rows.length > 0
-    && /总胆固醇/.test(lipDetail.rows.join('|')) && /甘油三酯/.test(lipDetail.rows.join('|'))
-    && lipSrcBtns >= lipDetail.rows.length,
-  JSON.stringify({ rows: lipDetail.rows.length, srcBtns: lipSrcBtns }));
 await page.evaluate(() => { window.__hrwDebug.closeAllLayers(); });
 await page.screenshot({ path: OUT + '16-overview-counts.png' });
 say('');
@@ -2194,7 +2274,7 @@ say('=== 10.16 分区求和 · 抽屉与卡片同源 · 组行口径 · 滚动�
 const partCase = await page.evaluate(async () => {
   const dbg = window.__hrwDebug, L = window.Logic;
   // 血脂四项只有一份"日期待确认"的报告：按 §18 它们不该进任何按日期算的口径
-  const ins = await dbg.local.database.from('health_records').insert({
+  const ins = await dbg.local.database.from('documents').insert({
     document_type: '体检报告', title: '分区用例·血脂待确认', primary_date: '2025-06-06',
     date_status: '待确认', person_id: 1, source_file: 'part-case.pdf', parse_status: '已归档',
     parsed_content: '【分区用例】', type_specific_data: { structured: true, lab_results: [
@@ -2223,15 +2303,8 @@ async function kpisUnder(label) {
       const v = (k.querySelector('.v') || {}).textContent;
       if (name) out[name.trim()] = (v || '').replace(/\s+/g, '').trim();
     });
-    const rows = [...document.querySelectorAll('#s-overview tr[data-ind]')].map(tr => {
-      const td = tr.querySelectorAll('td');
-      return {
-        key: tr.dataset.ind,
-        latest: td[2].textContent.replace(/\s+/g, ' ').trim(),
-        count: parseInt(td[4].textContent, 10)
-      };
-    });
-    return { kpis: out, rows };
+    // 关注表的行改在下面按 V2 的 #cardFollow 采样（旧的 tr[data-ind] 已随 V1 下线）
+    return { kpis: out };
   });
 }
 
@@ -2254,40 +2327,61 @@ const sumFee = sumKey('已记录医疗费用');
 check('分区求和：费用也满足同样的等式', Math.abs(allFee - sumFee) < 0.005,
   JSON.stringify({ all: allFee, sum: sumFee }));
 
-// 每一行都要自洽：次数为 0 的行不能显示任何"有结果"的字样。
-// 刻意在「近 3 个月」下采样 —— 那里必然有次数为 0 的行，否则这条断言会空转。
+// 每一行都要自洽：点数为 0 的行不能显示任何"有结果"的字样。
+// V2 的「点数」列来自 /api/watched 的 date_count，所以要采到 0 点的行，
+// 得先有一个「对『我』完全没有数据」的指标 —— 造一份只属于妈妈的报告，
+// 再把它关注到「我」名下，这样这行的点数必然是 0（否则这条断言会空转）。
 const zeroRows = await page.evaluate(async () => {
-  window.__hrwDebug.go('overview');
-  await new Promise(r => setTimeout(r, 400));
-  const me = [...document.querySelectorAll('#s-overview .person-switch .ps')].find(x => x.textContent.trim() === '我');
+  const dbg = window.__hrwDebug;
+  const iso = offset => { const d = new Date(); d.setDate(d.getDate() - offset); return d.toISOString().slice(0, 10); };
+  const ins = await dbg.local.database.from('documents').insert({
+    document_type: '检验报告', title: '零点用例（妈妈）', primary_date: iso(30), date_status: '已确认',
+    person_id: 5, source_file: 'zero-case.pdf', parse_status: '已归档',
+    type_specific_data: { structured: true, lab_results: [
+      { name: '零点用例指标', result: '1.0', unit: 'U/L', reference: '', flag: '', panel: '生化-肝功' }
+    ] }
+  }).select();
+  if (ins.error) return { err: ins.error.message };
+  await dbg.reload();
+  const look = await (await fetch('/api/indicators?person=1&gender=all')).json();
+  const blank = (look.indicators || []).find(i => i.name === '零点用例指标');
+  if (!blank) return { err: '零点用例指标没进目录' };
+  if (blank.obs_count) return { err: '零点指标对「我」竟然已有数据', n: blank.obs_count };
+  await fetch('/api/watched/add', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ person_id: 1, indicator_id: blank.id })
+  });
+  dbg.go('overview');
+  await new Promise(r => setTimeout(r, 500));
+  const me = [...document.querySelectorAll('#s-overview [data-ps]')].find(x => x.textContent.trim() === '我');
   if (me) me.click();
-  await new Promise(r => setTimeout(r, 600));
-  const t3 = document.querySelector('#rangeTabs button[data-range="3"]');
-  if (t3) t3.click();
-  await new Promise(r => setTimeout(r, 900));
-  const rows = [...document.querySelectorAll('#s-overview tr[data-ind]')].map(tr => {
+  await new Promise(r => setTimeout(r, 1100));
+  const rows = [...document.querySelectorAll('#cardFollow tbody tr')].map(tr => {
     const td = tr.querySelectorAll('td');
     return {
-      key: tr.dataset.ind,
-      latest: td[2].textContent.replace(/\s+/g, ' ').trim(),
-      count: parseInt(td[4].textContent, 10)
+      name: td[0] ? td[0].textContent.replace(/\s+/g, ' ').trim() : '',
+      latest: td[2] ? td[2].textContent.replace(/\s+/g, ' ').trim() : '',
+      count: td[4] ? parseInt(td[4].textContent, 10) : NaN
     };
   });
-  return { rows, zeros: rows.filter(r => r.count === 0) };
+  return { blankName: blank.name, rows, zeros: rows.filter(r => r.count === 0) };
 });
-check('采样里确实存在次数为 0 的行（保证下一条断言不是空转）',
-  zeroRows.zeros.length > 0, JSON.stringify({ total: zeroRows.rows.length, zeros: zeroRows.zeros.length }));
-check('每一行都自洽：次数为 0 的行不得显示任何「有结果」的字样（含血脂组行）',
-  zeroRows.zeros.every(r => /暂无|—|未提供/.test(r.latest)),
-  JSON.stringify(zeroRows.zeros.filter(r => !/暂无|—|未提供/.test(r.latest))));
+check('采样里确实存在点数为 0 的行（保证下一条断言不是空转）',
+  !zeroRows.err && (zeroRows.zeros || []).length > 0,
+  JSON.stringify({ err: zeroRows.err, total: (zeroRows.rows || []).length,
+    zeros: (zeroRows.zeros || []).length }));
+check('每一行都自洽：点数为 0 的行不得显示任何「有结果」的字样',
+  (zeroRows.zeros || []).every(r => /暂无|—|未提供/.test(r.latest)),
+  JSON.stringify((zeroRows.zeros || []).filter(r => !/暂无|—|未提供/.test(r.latest))));
 
-// 抽屉与它所从属的卡片必须同源。
-// 前置条件靠夹具造出来：两位成员各一张金额不同的票据 —— 不这样写，
-// 「卡片 == 抽屉」会在两边都是 0 时空转通过（D30 就是这种假通过的坑）。
+// 卡片与它背后的口径必须同源。
+// V2 的费用卡由后端 /api/fees/summary 驱动（旧的「查看全部票据来源」抽屉随 V1 下线），
+// 所以这里改成「卡片上的数字 == 服务端同成员的汇总」—— 仍是同一条不变量：
+// 同一件事不许有两个算法。前置条件照旧靠夹具造出两位成员金额不同，避免两边都是 0 时空转通过。
 const drawer = await page.evaluate(async () => {
   const dbg = window.__hrwDebug;
   const iso = offset => { const d = new Date(); d.setDate(d.getDate() - offset); return d.toISOString().slice(0, 10); };
-  const mk = (title, pid, amount) => dbg.local.database.from('health_records').insert({
+  const mk = (title, pid, amount) => dbg.local.database.from('documents').insert({
     document_type: '医疗发票/收费单', title, primary_date: iso(5), date_status: '已确认',
     person_id: pid, amount, source_file: title + '.pdf', parse_status: '已归档',
     type_specific_data: {}
@@ -2296,37 +2390,37 @@ const drawer = await page.evaluate(async () => {
   await mk('同源用例·妈妈的票据', 5, 22.22);
   await dbg.reload();
 
+  const srv = async pid => {
+    const j = await (await fetch('/api/fees/summary?person=' + pid)).json();
+    return ((j.fees || {}).total_cents || 0) / 100;
+  };
+  const srvMe = await srv(1);
+  const srvMom = await srv(5);
+
   async function feeCard(label) {
     dbg.go('overview');
     await new Promise(r => setTimeout(r, 500));
-    const b = [...document.querySelectorAll('#s-overview .person-switch .ps')].find(x => x.textContent.trim() === label);
+    const b = [...document.querySelectorAll('#s-overview [data-ps]')].find(x => x.textContent.trim() === label);
     if (b) b.click();
-    await new Promise(r => setTimeout(r, 800));
-    const c = document.querySelector('#s-overview .kpis .kpi:nth-child(4) .v');
-    return parseFloat((c ? c.textContent : '').replace(/[^\d.]/g, ''));
+    await new Promise(r => setTimeout(r, 1500));
+    const on = document.querySelector('#s-overview [data-ps].on');
+    const v = document.querySelector('#cardFees .kv dd b');
+    return {
+      num: parseFloat((v ? v.textContent : '').replace(/[^\d.]/g, '')),
+      active: on ? on.textContent.trim() : null
+    };
   }
-  const meNum = await feeCard('我');
-  const motherNum = await feeCard('妈妈');
-  dbg.go('overview');
-  await new Promise(r => setTimeout(r, 400));
-  const meBtn = [...document.querySelectorAll('#s-overview .person-switch .ps')].find(x => x.textContent.trim() === '我');
-  if (meBtn) meBtn.click();
-  await new Promise(r => setTimeout(r, 700));
-  const btn = document.getElementById('btnAllReceipts');
-  if (!btn) return { err: '没有票据入口' };
-  btn.click();
-  await new Promise(r => setTimeout(r, 1000));
-  const dt = document.querySelector('#rcLayer .kv dd b');
-  const drawerNum = parseFloat((dt ? dt.textContent : 'NaN').replace(/[^\d.]/g, ''));
-  dbg.closeAllLayers();
-  await new Promise(r => setTimeout(r, 300));
-  return { meNum, motherNum, drawerNum, drawerText: dt ? dt.textContent : null };
+  const meC = await feeCard('我');
+  const momC = await feeCard('妈妈');
+  return { meNum: meC.num, motherNum: momC.num, srvMe, srvMom,
+           meActive: meC.active, momActive: momC.active };
 });
 check('夹具让两位成员的费用确实不同（否则下一条断言会空转）',
-  !drawer.err && drawer.meNum > 0 && Math.abs(drawer.meNum - drawer.motherNum) > 0.005,
+  drawer.srvMe > 0 && Math.abs(drawer.srvMe - drawer.srvMom) > 0.005,
   JSON.stringify(drawer));
-check('票据抽屉的总额 == 它所从属的那张费用卡（按同一成员）',
-  !drawer.err && Math.abs(drawer.meNum - drawer.drawerNum) < 0.005, JSON.stringify(drawer));
+check('费用卡按成员取数（卡片数字 == 服务端 /api/fees/summary 同成员的汇总，不各算一遍）',
+  Math.abs(drawer.meNum - drawer.srvMe) < 0.005
+  && Math.abs(drawer.motherNum - drawer.srvMom) < 0.005, JSON.stringify(drawer));
 
 // 滚动锁不变量：每一次层转换后都必须与 DOM 现状一致
 const lockCheck = await page.evaluate(async () => {
@@ -2353,7 +2447,7 @@ check('滚动锁不变量：每一次层转换后，锁都等于「还有没有�
 // 从健康档案进详情删除：反馈（含快照文件名）必须落在看得见的地方
 const delVisible = await page.evaluate(async () => {
   const dbg = window.__hrwDebug;
-  const ins = await dbg.local.database.from('health_records').insert({
+  const ins = await dbg.local.database.from('documents').insert({
     document_type: '其他医疗资料', title: '删除反馈用例', primary_date: null,
     date_status: '日期待确认', person_id: 1, source_file: 'del-feedback.pdf',
     parse_status: '已归档', type_specific_data: {}
@@ -2398,14 +2492,14 @@ const dangling = await page.evaluate(() => {
   const st = window.__hrwDebug.state;
   const ids = (window.__hrwDebug.state.persons || []).map(p => Number(p.id));
   const bad = [];
-  ['health_records', 'daily_indicator_records', 'drugs'].forEach(t => {
+  ['documents', 'manual_records', 'drugs'].forEach(t => {
     ((st.tables[t] || {}).rows || []).forEach(r => {
       const p = r.person_id;
       if (p === null || p === undefined || p === '') return;
       if (ids.indexOf(Number(p)) < 0) bad.push(t + '#' + r.id + '→' + p);
     });
   });
-  return { bad, roster: ids, counts: ['health_records', 'daily_indicator_records']
+  return { bad, roster: ids, counts: ['documents', 'manual_records']
     .map(t => t + '=' + ((st.tables[t] || {}).rows || []).length).join(' ') };
 });
 check('四张表里没有悬空归属：person_id 要么为空，要么在名单里',
@@ -2414,7 +2508,7 @@ check('四张表里没有悬空归属：person_id 要么为空，要么在名单
 // M10：改一个跟日期无关的字段，不该把"猜出来的日期"提拔成已确认
 const dateStatusHold = await page.evaluate(async () => {
   const dbg = window.__hrwDebug, cloud = dbg.local;
-  const ins = await cloud.database.from('health_records').insert({
+  const ins = await cloud.database.from('documents').insert({
     document_type: '检验报告', title: '日期状态保持用例', primary_date: '2023-04-04',
     date_status: '待确认', person_id: 1, hospital: '原医院', source_file: 'keep-status.pdf',
     parse_status: '已归档', type_specific_data: {}
@@ -2422,26 +2516,33 @@ const dateStatusHold = await page.evaluate(async () => {
   if (!ins.data || !ins.data.length) return { err: 'insert' };
   const id = ins.data[0].id;
   await dbg.reload();          // 应用缓存里没有这条，openDoc 会静默返回，整条编辑路径就不跑了
+  await new Promise(r => setTimeout(r, 500));
+  const inState = (dbg.state.tables.documents.rows || [])
+    .some(r => Number(r.id) === Number(id));
+  // 上一节留下的详情层还端着自己的 DOM（含编辑入口）：不先收干净，
+  // 「点编辑」就会点到上一条档案的抽屉上，这条断言其实在测别的记录。
+  dbg.closeDrawers(); dbg.closeAllLayers();
+  await new Promise(r => setTimeout(r, 400));
   dbg.openDoc(id, '健康档案');
-  await new Promise(r => setTimeout(r, 900));
+  await new Promise(r => setTimeout(r, 1000));
   const edit = document.getElementById('btnRecEdit');
-  if (!edit) return { err: '没有编辑入口' };
+  if (!edit) return { err: '没有编辑入口', inState };
   edit.click();
   await new Promise(r => setTimeout(r, 700));
   const hosp = document.getElementById('reHospital');
-  if (!hosp) return { err: '编辑抽屉没打开' };
+  if (!hosp) return { err: '编辑抽屉没打开', inState };
   // 详情层会留着上一次渲染的 DOM —— 不校验抽屉属于哪条，就会"编辑了另一条档案"却以为改了这条
   const editing = document.getElementById('reTitle') ? document.getElementById('reTitle').value : null;
-  if (editing !== '日期状态保持用例') return { err: '抽屉开在了别的记录上', editing };
+  if (editing !== '日期状态保持用例') return { err: '抽屉开在了别的记录上', editing, inState };
   hosp.value = '改过的医院';                       // 只动医院，日期一格不碰
   document.getElementById('btnRecEditSave').click();
   await new Promise(r => setTimeout(r, 1200));
   dbg.closeDrawers(); dbg.closeAllLayers();
-  const back = await cloud.database.from('health_records').select().eq('id', id).select();
+  const back = await cloud.database.from('documents').select().eq('id', id).select();
   const row = (back.data || [])[0] || {};
-  const rows = await fetch('/api/db/rows?table=health_records').then(r => r.json());
+  const rows = await fetch('/api/db/rows?table=documents').then(r => r.json());
   const srv = (rows.rows || []).filter(r => Number(r.id) === Number(id))[0] || {};
-  return { hospital: srv.hospital, status: srv.date_status, date: srv.primary_date, ui: row.date_status };
+  return { hospital: srv.hospital, status: srv.date_status, date: srv.primary_date, ui: row.date_status, inState };
 });
 check('只改医院不会把「待确认」日期提拔成「已确认」（无关编辑不改统计口径）',
   !dateStatusHold.err && dateStatusHold.hospital === '改过的医院' &&
@@ -2456,12 +2557,12 @@ say('=== 11. 旧数据迁移（浏览器 IndexedDB → 本机磁盘）===');
 const seeded = await page.evaluate(async () => {
   try {
     const drv = window.LocalDB.idbDriver;
-    await drv.putRows('health_records', [{
+    await drv.putRows('documents', [{
       id: 1, document_type: '检验报告', primary_date: '2023-06-01',
       title: '浏览器里的旧记录', parse_status: '已解析待结构化',
       source_attachments: [], type_specific_data: {}
     }]);
-    const back = await drv.readAll('health_records');
+    const back = await drv.readAll('documents');
     return { ok: true, n: back.length };
   } catch (e) { return { ok: false, err: e.message }; }
 });
@@ -2482,7 +2583,7 @@ let migrated = { rows: [] };
 for (let i = 0; i < 15; i++) {
   await sleep(1000);
   migrated = await page.evaluate(async () => {
-    const r = await fetch('/api/db/rows?table=health_records', { cache: 'no-store' });
+    const r = await fetch('/api/db/rows?table=documents', { cache: 'no-store' });
     const j = await r.json();
     return { rows: j.rows.map(x => ({ id: x.id, title: x.title })) };
   });
@@ -2493,7 +2594,7 @@ check('旧数据已迁移到磁盘', migrated.rows.length === 1 && migrated.rows
   JSON.stringify(migrated));
 
 const stillInIdb = await page.evaluate(async () => {
-  const back = await window.LocalDB.idbDriver.readAll('health_records');
+  const back = await window.LocalDB.idbDriver.readAll('documents');
   return back.length;
 });
 check('迁移是复制：浏览器里的原数据未被删除（可对照回退）', stillInIdb === 1, stillInIdb);

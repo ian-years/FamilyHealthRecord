@@ -233,6 +233,14 @@ var V2 = (function () {
       : curPerson();
     if (pickedPid === null) { notify('还没有家庭成员，先到「成员」页添加。', true); return; }
 
+    // 抽屉里必须写清正在编辑谁的清单：关注是按成员存的，进错了人却没提示，
+    // 用户会以为自己的勾选"丢了"（其实勾在别人名下）。
+    function personName(pid) {
+      var hit = null;
+      persons.forEach(function (p) { if (Number(p.id) === Number(pid)) hit = p.name; });
+      return hit || ('#' + pid);
+    }
+
     box.innerHTML = '<div class="note">正在载入指标目录…</div>';
     if (C.openDrawer) C.openDrawer('drawer-follow');
 
@@ -252,7 +260,9 @@ var V2 = (function () {
         var onMap = {};
         cur.forEach(function (w) { onMap[w.id] = true; });
 
-        box.innerHTML = pickerHtml() +
+        box.innerHTML = '<div class="note" style="margin:0 0 11px">正在编辑 <b>' +
+          esc(personName(pickedPid)) + '</b> 的关注清单 —— 关注按成员保存，改这里不会影响别人。</div>' +
+          pickerHtml() +
           '<div class="field"><label>搜索指标</label>' +
           '<input type="text" id="v2Search" placeholder="输入名称，如 血糖 / 胆固醇 / CA19-9">' +
           '<div class="hint" id="v2FollowStat"></div></div>' +
@@ -385,9 +395,11 @@ var V2 = (function () {
       '<dt>点数</dt><dd>' + (tr.history ? tr.history.length : 0) + ' 条观测</dd>' +
       '</dl><div style="display:flex;gap:8px;flex-wrap:wrap">' +
       '<div class="range-tabs" id="v2IndRange">' +
-      ['12', 'all'].map(function (r) {
+      /* 范围值必须用后端认识的写法（'12m'）—— 早前这里发的是 '12'，
+         后端 _range_start 认不出就当成了「全部」，这个按钮实际是空转的。 */
+      ['12m', 'all'].map(function (r) {
         return '<button data-range="' + r + '" class="' + (v2Range === r ? 'on' : '') + '">' +
-          (r === '12' ? '近 12 个月' : '全部') + '</button>';
+          (r === '12m' ? '近 12 个月' : '全部') + '</button>';
       }).join('') + '</div></div></div></div>';
 
     /* 趋势：按单位分组，每组一条线 */

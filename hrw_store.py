@@ -23,7 +23,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import sqlite3
 import threading
 
@@ -2243,25 +2242,3 @@ class Store(object):
             finally:
                 c.close()
         return n
-
-    def move_orphans(self, subdir='orphan'):
-        """把不被引用的附件移到 data/files/orphan/，不直接删除。"""
-        known = set()
-        c = self._conn()
-        try:
-            known = {r['disk_name'] for r in c.execute('SELECT disk_name FROM files').fetchall()}
-        finally:
-            c.close()
-        dst_dir = os.path.join(self.files_dir, '..', subdir)
-        dst_dir = os.path.abspath(dst_dir)
-        os.makedirs(dst_dir, exist_ok=True)
-        moved = 0
-        for f in os.listdir(self.files_dir):
-            if f in known or not os.path.isfile(os.path.join(self.files_dir, f)):
-                continue
-            try:
-                shutil.move(os.path.join(self.files_dir, f), os.path.join(dst_dir, f))
-                moved += 1
-            except OSError:
-                pass
-        return moved

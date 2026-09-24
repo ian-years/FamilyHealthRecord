@@ -6,7 +6,7 @@
 <title>个人健康档案工作台</title>
 <!-- 图标内联为 SVG：本地版不打额外请求，也避免浏览器去讨一个不存在的 /favicon.ico -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f5fa9'/%3E%3Cpath d='M16 23.4s-6.8-4.3-6.8-9.1A4.1 4.1 0 0 1 16 11.3a4.1 4.1 0 0 1 6.8 3c0 4.8-6.8 9.1-6.8 9.1z' fill='%23ffffff'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="styles.css?v=20260924-1">
+<link rel="stylesheet" href="styles.css?v=20260924-2">
 </head>
 <body>
 
@@ -190,9 +190,13 @@
     <div class="field"><label>备份文件（.json）<span class="req">*</span></label>
       <input type="file" id="rsFile" accept=".json,application/json">
       <div class="hint">选择由「导出备份」生成的文件。会先校验格式，格式不符时不会写入任何内容。</div></div>
+    <div class="field"><label>恢复方式</label>
+      <label class="radio"><input type="radio" name="restoreMode" value="replace" checked> 完整还原（先清空再写入，回到备份那一刻的状态）</label>
+      <label class="radio"><input type="radio" name="restoreMode" value="merge"> 只合并不覆盖（本地已有的保留，只补回备份里有、本地缺的记录与附件）</label>
+      <div class="hint">「只合并」适合误删单条档案后从快照/备份找回那一条，不影响其余数据。</div></div>
     <div class="boundary">
-      <b>恢复会先清空再写入。</b>本机现有的四张表与全部附件都会被替换为备份内容，此操作不可撤销。<br><br>
-      <b>只合并不覆盖的恢复未实现。</b>所以恢复前请先导出一份当前备份，避免误操作后无处可退。<br><br>
+      <b>完整还原会先清空再写入。</b>本机现有的四张表与全部附件都会被替换为备份内容，此操作不可撤销。<br><br>
+      <b>只合并不覆盖</b>会保留本地已有的同 id 记录与同 path 附件，仅补入缺失的部分；成员名单只补本地没有的成员。<br><br>
       <b>格式不符不写入。</b>只有校验通过（含 schema 标识与四张表结构）的备份才会被执行。
     </div>
     <div id="restoreMsg"></div>
@@ -227,11 +231,11 @@
 
 <!-- 本地版不加载任何云端 SDK，也不再有配置文件：数据全部走 localdb.js 的本地存储。
      资源仍带版本参数，便于将来换用带缓存的静态服务器时能可靠刷新。 -->
-<script src="localdb.js?v=20260924-1"></script>
-<script src="logic.js?v=20260924-1"></script>
-<script src="app.js?v=20260924-1"></script>
+<script src="localdb.js?v=20260924-2"></script>
+<script src="logic.js?v=20260924-2"></script>
+<script src="app.js?v=20260924-2"></script>
 <!-- V2 关系型数据模块：依赖 app.js 里的全局函数，必须排在后面。
      后端没有 V2 表时它会安静地什么都不做，不影响原有页面。 -->
-<script src="v2.js?v=20260924-1"></script>
+<script src="v2.js?v=20260924-2"></script>
 </body>
 </html>

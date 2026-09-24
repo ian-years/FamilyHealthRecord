@@ -580,6 +580,15 @@ var serverDriver = {
     return { persons: j.persons || [], stats: j.stats || {} };
   },
 
+  // 整库恢复（replace）或只合并不覆盖（merge），由后端统一处理。
+  // 前端门面在 merge 模式下优先走这条路，而不是逐表 clear+put。
+  async importBackup(obj, mode) {
+    var j = await this._post('/api/db/import', { backup: obj, mode: mode || 'replace' });
+    if (!j || !j.ok) throw new Error((j && j.errors && j.errors.join('；')) || '恢复失败');
+    this._meta = null;
+    return j;
+  },
+
   // 批量归属：默认只动尚未归属的记录。服务端会先打快照。
   async assignPerson(table, personId, onlyUnassigned) {
     var j = await this._post('/api/persons/assign', {
@@ -784,10 +793,20 @@ function createLocal(opts) {
       return backup;
     },
 
-    // 恢复会先清空再写入：调用方必须已经取得用户明确确认
-    async importBackup(obj) {
+    // 恢复会先清空再写入：调用方必须已经取得用户明确确认。
+    // mode='merge' 时只补本地缺失的记录/附件/成员，不动已有的（同 id / 同 path 跳过）。
+    async importBackup(obj, mode) {
       var v = validateBackup(obj);
       if (!v.ok) return { ok: false, errors: v.errors, written: 0, filesWritten: 0, counts: {} };
+      // merge 模式：若驱动支持整库接口（后端 SQLite），直接交给后端统一做合并，
+      // 逐表 clear+put 会先清空、破坏「不覆盖」语义。
+      if (mode === 'merge' && typeof D.importBackup === 'function') {
+        var rj = await D.importBackup(obj, 'merge');
+        TABLES.forEach(function (n) { cache[n] = null; loaded[n] = false; });
+        fileMeta = null;
+        return { ok: true, errors: [], written: rj.written, filesWritten: rj.filesWritten,
+                 metaWritten: rj.metaWritten, counts: rj.counts };
+      }
       for (var i = 0; i < RESTORE_ORDER.length; i++) {
         var name = RESTORE_ORDER[i];
         var rows = v.tables[name] || [];

@@ -267,6 +267,42 @@ def main():
         info = S.Store(HERE, data_dir=tmp).info()
         check('info.persons 与名单长度一致', info.get('persons') == before,
               info.get('persons'))
+
+        print('\n=== 15. 关注（add_watched）校验主人必须是真实成员 ===')
+        # 关注是「谁关心某项」，主人必须是名单里的成员；SQLite foreign_keys
+        # 在进程里是 OFF 的，光靠声明拦不住幽灵 id。这里钉死三类非法输入：
+        # id=0（未指定哨兵）、名单外 id、非整数，且报错后不落一行关注。
+        stw = S.Store(HERE, data_dir=tmp)
+        iid = None
+        try:
+            # 造一个真实指标，确保只有「成员」这一维在测
+            c = stw._conn()
+            try:
+                c.execute('INSERT INTO indicators (name, key, category, unit) '
+                          'VALUES (?,?,?,?)', (u'空腹血糖', 'glu_fast', u'生化', 'mmol/L'))
+                c.commit()
+                iid = c.execute('SELECT id FROM indicators WHERE key=?', ('glu_fast',)).fetchone()['id']
+            finally:
+                c.close()
+            wat0 = lambda: stw.add_watched(0, iid)
+            expect_error('add_watched 拒绝 id=0（未指定哨兵不是成员）', wat0, '名单')
+            wat_ghost = lambda: stw.add_watched(987, iid)
+            expect_error('add_watched 拒绝名单外的成员 id', wat_ghost, '名单')
+            wat_str = lambda: stw.add_watched('abc', iid)
+            expect_error('add_watched 拒绝非整数成员 id', wat_str, '整数')
+            # 合法关注照常成功
+            ok = stw.add_watched(1, iid)
+            check('合法关注（成员 1）成功', ok is True)
+            check('成员 1 的关注清单里正好这一项（三次非法关注没落行）',
+                  len(stw.list_watched(1)) == 1,
+                  str([(r['key'], r['name']) for r in stw.list_watched(1)]))
+            check('幽灵成员 987 没有任何关注（校验拦住了写入）',
+                  len(stw.list_watched(987)) == 0,
+                  str(stw.list_watched(987)))
+            check('「未指定」没有关注清单（0 不是成员，哨兵语义不被绕过）',
+                  stw.list_watched(0) == [], str(stw.list_watched(0)))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

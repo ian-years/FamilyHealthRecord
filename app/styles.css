@@ -412,6 +412,8 @@ html{scrollbar-width:thin;scrollbar-color:#d3dbe4 transparent}
   border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)}
 .field input:focus,.field select:focus,.field textarea:focus{outline:0;border-color:var(--blue-2);box-shadow:0 0 0 3px var(--blue-softer)}
 .field .hint{font-size:11px;color:var(--text-3);margin-top:4px}
+.field .radio{display:flex;align-items:flex-start;gap:7px;font-size:13px;color:var(--text);margin-bottom:7px;cursor:pointer}
+.field .radio input{width:auto;margin-top:3px}
 .pick-list{border:1px solid var(--line);border-radius:var(--radius);max-height:260px;overflow-y:auto}
 .pick-list .pi{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid #f2f5f8;font-size:13px}
 .pick-list .pi:last-child{border-bottom:0}

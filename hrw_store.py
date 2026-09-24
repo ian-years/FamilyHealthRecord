@@ -1417,8 +1417,13 @@ class Store(object):
             'meta': self.meta_all(),
         }
 
-    def import_backup(self, obj):
-        """整库替换：先清空再写入。调用方必须已取得用户明确确认。"""
+    def import_backup(self, obj, mode='replace'):
+        """整库替换（mode='replace'）或只合并不覆盖（mode='merge'）。
+
+        replace：先清空再写入，恢复到备份那一刻的完整状态。调用方必须已取得用户明确确认。
+        merge：不清空现有数据；备份里「本地没有的」补进来，「本地已有的（同 id / 同 path）」
+        原样保留。用于「误删单条档案后，从快照只找回那一条、不影响其余新数据」的场景。
+        """
         if not isinstance(obj, dict):
             raise StoreError('备份内容不是对象')
         if obj.get('schema') != BACKUP_SCHEMA:
@@ -1430,6 +1435,10 @@ class Store(object):
                 raise StoreError('备份缺少数据表：%s' % t)
             if not isinstance(tables[t], list):
                 raise StoreError('备份中的 %s 不是列表' % t)
+        if mode not in ('replace', 'merge'):
+            raise StoreError('未知的恢复模式：%s' % mode)
+        if mode == 'merge':
+            return self._merge_backup(obj, tables)
 
         self.clear_tables()
         self.clear_files()
@@ -1465,6 +1474,73 @@ class Store(object):
         return {'ok': True, 'errors': [], 'written': written,
                 'filesWritten': files_written, 'metaWritten': meta_written,
                 'counts': counts}
+
+    def _merge_backup(self, obj, tables):
+        """只合并不覆盖：只补本地缺失的记录 / 附件 / 成员，不碰已有的。
+
+        判据按「主键是否存在」：documents/drugs/indicators/manual_records 看 id，
+        附件看 path，成员名单看 person id。同 id 已有 → 跳过（本地可能更新过，
+        覆盖会抹掉恢复之后的新改动）。"""
+        existing = {}
+        with self._lock:
+            c = self._conn()
+            try:
+                for t in TABLES:
+                    existing[t] = {r['id'] for r in
+                                   c.execute('SELECT id FROM "%s"' % t).fetchall()}
+                existing_files = {r['path'] for r in
+                                  c.execute('SELECT path FROM files').fetchall()}
+            finally:
+                c.close()
+
+        written = 0
+        for t in TABLES:
+            to_add = [r for r in tables[t]
+                      if isinstance(r, dict) and r.get('id') not in existing[t]]
+            if not to_add:
+                continue
+            # 合并进来的档案要重新归一化出观测值：走 upsert 的正常写入路径即可
+            self.upsert(t, to_add)
+            written += len(to_add)
+
+        files_written = 0
+        for f in (obj.get('files') or []):
+            if not isinstance(f, dict) or not f.get('path'):
+                continue
+            if f.get('path') in existing_files:
+                continue
+            try:
+                blob = base64.b64decode(f.get('dataBase64') or '')
+            except Exception:
+                raise StoreError('附件 %s 的内容不是合法 base64' % f.get('path'))
+            self.put_file(f['path'], f.get('name'), f.get('mime_type'), blob,
+                          f.get('uploaded_at'))
+            files_written += 1
+
+        # 成员名单：只补本地没有的成员（按 id 判重），不改动已有成员的名字。
+        meta_written = 0
+        if isinstance(obj.get('meta'), dict):
+            src = obj['meta'].get('persons')
+            # meta_all() 存的是 JSON 字符串；旧备份可能直接是列表，两种都兼容。
+            if isinstance(src, str):
+                try:
+                    src = json.loads(src)
+                except Exception:
+                    src = None
+            if isinstance(src, list):
+                cur = self.persons()
+                cur_ids = {int(p.get('id') or 0) for p in cur}
+                added = [p for p in src
+                         if isinstance(p, dict) and int(p.get('id') or 0) not in cur_ids]
+                if added:
+                    merged = cur + added
+                    self.save_persons(merged)
+                    meta_written = len(added)
+
+        counts = self.counts()
+        return {'ok': True, 'errors': [], 'written': written,
+                'filesWritten': files_written, 'metaWritten': meta_written,
+                'counts': counts, 'mode': 'merge'}
 
     def snapshot(self, reason='auto'):
         """写一份 JSON 快照，用于误操作回退。失败不抛出（不能因为快照失败挡住房写入）。"""
@@ -1781,13 +1857,20 @@ class Store(object):
             c.close()
 
     def add_watched(self, person_id, indicator_id):
+        # 关注是「谁关心某项」，主人必须是名单里的真实成员。SQLite 的
+        # foreign_keys 在本进程是 OFF 的，光靠声明拦不住幽灵 id —— 导入一份
+        # 含幽灵成员 id 的备份会把这条关注写进去，然后永远匹配不到人。
+        pid = self.check_person_id(person_id)
+        if pid <= 0:
+            raise StoreError('关注必须属于名单里的成员，收到 id=%s（0 代表「未指定」，不是成员）' % pid)
+        if not any(int(p.get('id') or 0) == pid for p in self.persons()):
+            raise StoreError('关注的主人不在成员名单里（id=%s）' % pid)
         c = self._conn()
         try:
             try:
-                pid = int(person_id)
                 iid = int(indicator_id)
             except (TypeError, ValueError):
-                raise StoreError('成员或指标 id 不合法')
+                raise StoreError('指标 id 不合法')
             if not c.execute('SELECT id FROM indicators WHERE id=?', (iid,)).fetchone():
                 raise StoreError('指标不存在：%s' % iid)
             c.execute('INSERT OR IGNORE INTO watched_indicators '

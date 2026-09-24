@@ -693,23 +693,35 @@ async function doRestoreBackup() {
   if (!v.ok) return setRestoreMsg('备份校验未通过：' + v.errors.join('；'), true);
 
   var btn = $('btnRestoreConfirm');
+  var mode = 'replace';
+  var modeEl = document.querySelector('input[name="restoreMode"]:checked');
+  if (modeEl && modeEl.value === 'merge') mode = 'merge';
   var counts = Object.keys(v.tables).map(function (k) { return k + ' ' + v.tables[k].length + ' 条'; }).join('，');
-  if (!confirm('恢复会先清空本机现有的四张表与全部附件，再写入备份内容。此操作不可撤销。\n\n' +
-               '备份内容：' + counts + '，附件 ' + v.files.length + ' 个。\n\n要继续吗？')) return;
+  var confirmText = (mode === 'merge')
+    ? ('将「只合并不覆盖」地恢复：本地已有的记录与附件保留，只补入备份里有、本地缺的部分。\n\n' +
+       '备份内容：' + counts + '，附件 ' + v.files.length + ' 个。\n\n要继续吗？')
+    : ('恢复会先清空本机现有的四张表与全部附件，再写入备份内容。此操作不可撤销。\n\n' +
+       '备份内容：' + counts + '，附件 ' + v.files.length + ' 个。\n\n要继续吗？');
+  if (!confirm(confirmText)) return;
 
   btn.disabled = true; btn.textContent = '恢复中…';
   try {
-    var res = await cloud.importBackup(obj);
+    var res = await cloud.importBackup(obj, mode);
     if (!res.ok) throw new Error(res.errors.join('；'));
     cloud.invalidate();
     await loadAll();
     await refreshLocalStats();
     closeDrawers();
     renderCurrent();
-    alert('已从备份恢复：四张表共 ' + res.written + ' 条记录，附件 ' + res.filesWritten + ' 个' +
-      (res.metaWritten ? '，成员名单已一并还原' :
-        '。这份备份里没有成员名单（较早期的备份格式），' +
-        '成员名单保持原样未改动') + '。');
+    if (mode === 'merge') {
+      alert('已合并恢复：补入 ' + res.written + ' 条记录、附件 ' + res.filesWritten + ' 个' +
+        (res.metaWritten ? '，新增成员 ' + res.metaWritten + ' 位' : '') + '。本地已有内容保持不变。');
+    } else {
+      alert('已从备份恢复：四张表共 ' + res.written + ' 条记录，附件 ' + res.filesWritten + ' 个' +
+        (res.metaWritten ? '，成员名单已一并还原' :
+          '。这份备份里没有成员名单（较早期的备份格式），' +
+          '成员名单保持原样未改动') + '。');
+    }
     btn.disabled = false; btn.textContent = '确认恢复';
   } catch (e) {
     setRestoreMsg('恢复失败：' + (e.message || '未知错误') + '。本机数据可能已部分改变，请用导出备份复核。', true);

@@ -581,7 +581,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_out({"ok": True})
 
             if path == "/api/db/import":
-                res = STORE.import_backup(body.get("backup"))
+                res = STORE.import_backup(body.get("backup"),
+                                          body.get("mode") or "replace")
                 return self.json_out(res)
 
             if path == "/api/db/snapshot":

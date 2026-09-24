@@ -267,6 +267,37 @@ var V2 = (function () {
         }).then(function () { refresh(); });
       };
     });
+
+    /* 关注指标卡变长后，把「跨年度资料活动」「资料类型分布」挪到右列，
+       避免左列过长把这两个卡片挤到很下面。 */
+    rebalanceOverview(followedRows.length + unfollowedRows.length);
+  }
+
+  /* 概览左右列自适应：关注指标行数多时，把左列末尾的「跨年度资料活动」和
+     「资料类型分布」两张卡移到右列（费用卡后面），行数少时移回左列。 */
+  var REBALANCE_THRESHOLD = 12;   // 关注指标总行数超过该值时触发右移
+  function rebalanceOverview(followRows) {
+    var activity = document.getElementById('cardActivity');
+    var typeDist = document.getElementById('cardTypeDist');
+    if (!activity || !typeDist) return;
+    var right = document.getElementById('gridRight');
+    var shouldMove = followRows > REBALANCE_THRESHOLD;
+
+    // 判断 activity 当前是否已在右列：它在 gridRight 里还是别处
+    var alreadyRight = right && activity.parentNode === right;
+
+    if (shouldMove && !alreadyRight && right) {
+      // 移到右列：插到「用药概况」卡（右列最后一张）之后
+      right.appendChild(activity);
+      right.appendChild(typeDist);
+    } else if (!shouldMove && alreadyRight) {
+      // 移回左列：插到 cardFollow 之后（恢复原来的顺序）
+      var follow = document.getElementById('cardFollow');
+      if (follow && follow.parentNode) {
+        follow.parentNode.insertBefore(activity, follow.nextSibling);
+        follow.parentNode.insertBefore(typeDist, activity.nextSibling);
+      }
+    }
   }
 
   /* ------------------------------------------------------------ 票据来源层 */
@@ -525,12 +556,26 @@ var V2 = (function () {
         };
 
         document.getElementById('v2FollowAll').onclick = function () {
-          var jobs = indicators.filter(function (i) { return (i.obs_count || 0) > 0; })
-            .map(function (i) { return post('/api/watched/add', { person_id: pickedPid, indicator_id: i.id }); });
-          Promise.all(jobs).then(function () {
-            if (C.closeDrawers) C.closeDrawers();
-            refresh();
-          });
+          var btn = document.getElementById('v2FollowAll');
+          var ids = indicators.filter(function (i) { return (i.obs_count || 0) > 0; })
+            .map(function (i) { return i.id; });
+          if (!ids.length) { notify('没有有数据的指标可关注。', true); return; }
+          // 一次批量写入，避免几百个指标发几百次请求卡好几秒
+          if (btn) { btn.disabled = true; btn.textContent = '正在关注 ' + ids.length + ' 项…'; }
+          post('/api/watched/add-batch', { person_id: pickedPid, indicator_ids: ids })
+            .then(function (r) {
+              if (r && r.ok) {
+                notify('已关注 ' + ids.length + ' 项（新增 ' + (r.added || 0) + ' 项）。');
+                if (C.closeDrawers) C.closeDrawers();
+                refresh();
+              } else {
+                notify('关注失败：' + ((r && r.reason) || '未知'), true);
+                if (btn) { btn.disabled = false; btn.textContent = '关注全部有数据的指标'; }
+              }
+            })['catch'](function (e) {
+              notify('关注失败：' + (e && e.message ? e.message : '未知'), true);
+              if (btn) { btn.disabled = false; btn.textContent = '关注全部有数据的指标'; }
+            });
         };
 
         var copySel = document.getElementById('v2CopyFrom');

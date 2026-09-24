@@ -724,6 +724,11 @@ class Handler(SimpleHTTPRequestHandler):
                 STORE.add_watched(body.get("person_id"), body.get("indicator_id"))
                 return self.json_out({"ok": True})
 
+            if path == "/api/watched/add-batch":
+                added = STORE.add_watched_batch(body.get("person_id"),
+                                               body.get("indicator_ids") or [])
+                return self.json_out({"ok": True, "added": added})
+
             if path == "/api/watched/remove":
                 STORE.remove_watched(body.get("person_id"), body.get("indicator_id"))
                 return self.json_out({"ok": True})

@@ -1908,6 +1908,46 @@ class Store(object):
             c.close()
         return True
 
+    def add_watched_batch(self, person_id, indicator_ids):
+        """一次给某成员批量关注多个指标（§11 待办「关注全部有数据的指标」提速）。
+
+        单个 add_watched 每次开一条连接 + 一次事务，几百个指标就是几百次
+        往返，前端「关注全部」会卡好几秒。这里合并成一次 executemany，
+        只校验一次成员合法性，重复的用 INSERT OR IGNORE 跳过。返回新增条数。
+        """
+        pid = self.check_person_id(person_id)
+        if pid <= 0:
+            raise StoreError('关注必须属于名单里的成员，收到 id=%s（0 代表「未指定」，不是成员）' % pid)
+        if not any(int(p.get('id') or 0) == pid for p in self.persons()):
+            raise StoreError('关注的主人不在成员名单里（id=%s）' % pid)
+        ids = []
+        for v in (indicator_ids or []):
+            try:
+                ids.append(int(v))
+            except (TypeError, ValueError):
+                continue
+        if not ids:
+            return 0
+        with self._lock:
+            c = self._conn()
+            try:
+                # 只对确实存在的指标插入，其余静默跳过
+                q = 'SELECT id FROM indicators WHERE id IN (%s)' % ','.join('?' * len(ids))
+                valid = {r['id'] for r in c.execute(q, ids).fetchall()}
+                now = now_iso()
+                added = 0
+                for iid in ids:
+                    if iid not in valid:
+                        continue
+                    cur = c.execute('INSERT OR IGNORE INTO watched_indicators '
+                                    '(person_id, indicator_id, created_at) VALUES (?,?,?)',
+                                    (pid, iid, now))
+                    added += cur.rowcount
+                c.commit()
+                return added
+            finally:
+                c.close()
+
     def remove_watched(self, person_id, indicator_id):
         """取消关注。person_id 传 'all' 时取消所有成员对这个指标的关注
         （「全部成员」视图里的取消按钮用的是去重并集，没有单一归属人）。"""

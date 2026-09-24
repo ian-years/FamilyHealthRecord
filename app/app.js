@@ -1574,7 +1574,7 @@ function renderOverview() {
     msg('正在载入关注指标…') + '</div></div>';
 
   // E. 跨年度资料活动
-  html += '<div class="card"><div class="card-h"><h3>跨年度资料活动 <span class="sub">按年汇总，点击年份展开月份</span></h3></div><div class="card-b">';
+  html += '<div class="card" id="cardActivity"><div class="card-h"><h3>跨年度资料活动 <span class="sub">按年汇总，点击年份展开月份</span></h3></div><div class="card-b">';
   if (!activity.length) html += msg('暂无带有效日期的资料。无日期的资料不计入年度活动。');
   else {
     activity.forEach(function (a) {
@@ -1593,7 +1593,7 @@ function renderOverview() {
   html += '</div></div>';
 
   // F. 资料类型分布
-  html += '<div class="card"><div class="card-h"><h3>资料类型分布 <span class="sub">七类资料数量</span></h3></div><div class="card-b">';
+  html += '<div class="card" id="cardTypeDist"><div class="card-h"><h3>资料类型分布 <span class="sub">七类资料数量</span></h3></div><div class="card-b">';
   if (!recs.length) html += msg('暂无资料。归档后这里会显示七类资料的分布。');
   else {
     var maxd = Math.max.apply(null, dist.map(function (d) { return d.count; })) || 1;
@@ -1611,7 +1611,7 @@ function renderOverview() {
      两张费用卡同样由 V2 接管（renderFeesCards，数据源 /api/fees/summary）。
      旧版按 L.buildFees(recs) 现算的卡片已随 V1 一起删掉 —— 同一件事两个算法
      正是这一版要根除的毛病。这里只留挂载点。 */
-  html += '<div class="grid">';
+  html += '<div class="grid" id="gridRight">';
   html += '<div class="card" id="cardFees"><div class="card-h"><h3>已记录医疗费用</h3></div>' +
     '<div class="card-b">' + msg('正在载入费用…') + '</div></div>';
 

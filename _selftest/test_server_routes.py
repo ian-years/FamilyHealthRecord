@@ -303,6 +303,35 @@ def main():
         check('重复复制幂等（第二次 added=0）', cp2.get('added') == 0,
               json.dumps(cp2, ensure_ascii=False)[:120])
 
+        print('\n=== 9. 批量关注（/api/watched/add-batch）一次写入多个指标 ===')
+        # 再造两个真实指标，用批量接口一次关注全部，核对 added 与回读清单。
+        c = st._conn()
+        try:
+            for k, nm in [('glu_fast', '空腹血糖'), ('glu_pp', '餐后血糖')]:
+                c.execute("INSERT INTO indicators (name, key, category, unit) "
+                          "VALUES (?, ?, '生化', 'mmol/L')", (nm, k))
+            c.commit()
+            keys = {r['key']: r['id'] for r in c.execute(
+                "SELECT id, key FROM indicators").fetchall()}
+        finally:
+            c.close()
+        batch_ids = [keys['glu_r'], keys['glu_fast'], keys['glu_pp']]
+        code, bp = call(op, port, '/api/watched/add-batch',
+                        {'person_id': other, 'indicator_ids': batch_ids})
+        # other 已有关注 glu_r（复制阶段加的），批量新增 glu_fast、glu_pp 两项
+        check('add-batch → ok 且新增 2 项（已有 glu_r 被跳过）',
+              bool(bp.get('ok')) and bp.get('added') == 2,
+              json.dumps(bp, ensure_ascii=False)[:120])
+        _, wlb = call(op, port, '/api/watched?person=%d' % other)
+        keys_b = [x['key'] for x in (wlb.get('watched') or [])]
+        check('批量后目标成员关注清单含 glu_r/glu_fast/glu_pp',
+              set(keys_b) == {'glu_r', 'glu_fast', 'glu_pp'}, str(keys_b))
+        # 幂等：再批量一次全部已存在
+        code, bp2 = call(op, port, '/api/watched/add-batch',
+                         {'person_id': other, 'indicator_ids': batch_ids})
+        check('重复批量幂等（第二次 added=0）', bp2.get('added') == 0,
+              json.dumps(bp2, ensure_ascii=False)[:120])
+
         # health 短时缓存：两次调用返回同一个 ok 状态（第二次命中缓存，不重新跑 CLI）。
         # 子进程找不到 xparse-cli，health 恒返回 ok:false —— 断言的是「缓存不改变结果」，
         # 以及连续调用不炸（缓存路径正确返回同一份 dict）。

@@ -332,6 +332,30 @@ def main():
             expect_error('copy_watched 拒绝复制给自己', lambda: stw.copy_watched(1, 1), '同一位')
             expect_error('copy_watched 拒绝 id=0', lambda: stw.copy_watched(0, 2), '真实成员')
             expect_error('copy_watched 拒绝名单外成员', lambda: stw.copy_watched(987, 2), '名单')
+
+            print('\n=== 17. 批量关注（add_watched_batch）一次写入多个指标 ===')
+            # 关注全部有数据的指标：单个 add_watched 每个开一条连接，几百个就是
+            # 几百次往返。批量版只开一次事务，重复/非法 id 静默跳过。
+            # 注意：§16 的 copy_watched 已把 glu_fast/g2 复制给成员 2，这里成员 2
+            # 已有关注 g4/glu_fast/g2，批量 [glu_fast, g2, g3] 只剩 g3 是新的。
+            ids_list = [ids['glu_fast'], ids['g2'], ids['g3']]
+            added = stw.add_watched_batch(2, ids_list)
+            check('批量关注返回新增 1 项（glu_fast/g2 已被复制过，仅 g3 新加入）',
+                  added == 1, 'added=%s' % added)
+            w2b = {r['key'] for r in stw.list_watched(2)}
+            check('批量后成员 2 的关注清单包含 glu_fast/g2/g3/g4',
+                  w2b == {'glu_fast', 'g2', 'g3', 'g4'}, str(sorted(w2b)))
+            # 幂等：再批量一次全部已存在，新增 0
+            check('重复批量幂等（第二次新增 0 项）',
+                  stw.add_watched_batch(2, ids_list) == 0)
+            # 混入不存在的指标 id / 非法值：只插入真实存在的，非法值静默丢弃
+            added2 = stw.add_watched_batch(2, [999999, 'not-a-number', None])
+            check('混入不存在 id 与非法值 → 全部跳过，新增 0', added2 == 0, 'added=%s' % added2)
+            # 空列表：直接返回 0，不报错
+            check('空列表返回 0', stw.add_watched_batch(2, []) == 0)
+            # 非法成员：与 add_watched 同一判据
+            expect_error('批量关注拒绝 id=0', lambda: stw.add_watched_batch(0, ids_list), '名单')
+            expect_error('批量关注拒绝名单外成员', lambda: stw.add_watched_batch(987, ids_list), '名单')
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
     finally:

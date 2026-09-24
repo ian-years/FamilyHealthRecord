@@ -401,9 +401,13 @@ html{scrollbar-width:thin;scrollbar-color:#d3dbe4 transparent}
 .mask{position:fixed;inset:0;background:rgba(20,28,38,.42);z-index:300;display:none}
 .mask.on{display:block}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:430px;max-width:94vw;background:var(--surface);z-index:310;
-  box-shadow:-8px 0 32px rgba(16,24,40,.16);transform:translateX(100%);transition:transform .22s ease;
+  box-shadow:-8px 0 32px rgba(16,24,40,.16);transform:translateX(100%);
+  /* 关闭态必须 visibility:hidden：抽屉虽然 translateX(100%) 移出屏幕，但它的
+     box-shadow 仍会画进视口右缘约 40px，形成一条全局的黑色渐变竖条。
+     延迟 .22s 是为了让收起动画播完再隐藏，打开时 0s 立即可见。 */
+  visibility:hidden;transition:transform .22s ease, visibility 0s linear .22s;
   display:flex;flex-direction:column}
-.drawer.on{transform:translateX(0)}
+.drawer.on{transform:translateX(0);visibility:visible;transition:transform .22s ease, visibility 0s}
 .drawer .dh{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
 .drawer .dh h3{margin:0;font-size:15px;font-weight:640}
 .drawer .db{padding:16px 18px;overflow-y:auto;flex:1}

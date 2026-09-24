@@ -1671,7 +1671,21 @@ function bindOverview() {
   });
   qsa('[data-go-btn]').forEach(function (b) { b.onclick = function () { go(b.dataset.goBtn); }; });
   qsa('[data-act-toggle]').forEach(function (h) {
-    h.onclick = function () { S.actYears[h.dataset.actToggle] = !S.actYears[h.dataset.actToggle]; renderOverview(); };
+    h.onclick = function () {
+      var year = h.dataset.actToggle;
+      S.actYears[year] = !S.actYears[year];
+      // 展开/收起只是切一个 class，不需要整页重渲染 —— 之前这里调 renderOverview()
+      // 会把关注指标卡、费用卡重置成「正在载入…」占位再异步拉一遍，整页跟着闪一下，
+      // 滚动位置也可能丢。现在只就地切换 .year-grp 的 open 态与「收起/展开」提示文字。
+      var grp = h.closest('.year-grp');
+      if (grp) {
+        grp.classList.toggle('open', !!S.actYears[year]);
+        // 「收起/展开月份」提示是 .year-h 的**直接**子元素 .muted（「共 X 份资料」
+        // 那个 .muted 嵌在 .l 里面，querySelector 会先命中它，所以这里用 :scope >）。
+        var hint = h.querySelector(':scope > .muted');
+        if (hint) hint.textContent = S.actYears[year] ? '收起' : '展开月份';
+      }
+    };
   });
   /* 关注指标表 / 两张费用卡 / 指标详情层都由 V2 接管，它们的按钮与行事件
      在 app\v2.js 里绑（那些 DOM 是 V2 渲染出来的，这里根本抓不到）。 */

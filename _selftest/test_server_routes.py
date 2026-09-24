@@ -277,6 +277,40 @@ def main():
         check('「未指定」没有关注清单（关注是「谁关心某项」，必须有一位主人）',
               (w.get('watched') or []) == [], json.dumps(w, ensure_ascii=False)[:120])
 
+        print('\n=== 8. 关注集复制（copy_watched）+ health 短时缓存 ===')
+        # 关注集复制：成员 legal 关注一个指标，另一位成员复制过去。
+        # 先在库里造一个真实指标，再走 add → copy → 回读核对。
+        st = S.Store(HERE, data_dir=tmp)
+        c = st._conn()
+        try:
+            c.execute("INSERT INTO indicators (name, key, category, unit) "
+                      "VALUES ('血糖', 'glu_r', '生化', 'mmol/L')")
+            c.commit()
+            iid = c.execute("SELECT id FROM indicators WHERE key='glu_r'").fetchone()['id']
+        finally:
+            c.close()
+        other = [p['id'] for p in S.Store(HERE, data_dir=tmp).persons() if p['id'] != legal][0]
+        call(op, port, '/api/watched/add', {'person_id': legal, 'indicator_id': iid})
+        code, cp = call(op, port, '/api/watched/copy',
+                        {'from_person_id': legal, 'to_person_id': other})
+        check('copy_watched → ok 且新增 1 项', bool(cp.get('ok')) and cp.get('added') == 1,
+              json.dumps(cp, ensure_ascii=False)[:120])
+        _, wl = call(op, port, '/api/watched?person=%d' % other)
+        keys = [x['key'] for x in (wl.get('watched') or [])]
+        check('复制后目标成员的关注清单里出现了这个指标', 'glu_r' in keys, str(keys))
+        code, cp2 = call(op, port, '/api/watched/copy',
+                         {'from_person_id': legal, 'to_person_id': other})
+        check('重复复制幂等（第二次 added=0）', cp2.get('added') == 0,
+              json.dumps(cp2, ensure_ascii=False)[:120])
+
+        # health 短时缓存：两次调用返回同一个 ok 状态（第二次命中缓存，不重新跑 CLI）。
+        # 子进程找不到 xparse-cli，health 恒返回 ok:false —— 断言的是「缓存不改变结果」，
+        # 以及连续调用不炸（缓存路径正确返回同一份 dict）。
+        c1, h1 = call(op, port, '/api/health')
+        c2, h2 = call(op, port, '/api/health')
+        check('health 连续两次调用都返回一致结果（缓存不改变语义）',
+              h1.get('ok') == h2.get('ok'), 'ok1=%r ok2=%r' % (h1.get('ok'), h2.get('ok')))
+
         return finish(proc, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

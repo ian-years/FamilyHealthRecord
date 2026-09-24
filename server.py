@@ -185,12 +185,25 @@ def find_op_id(text):
     return m.group(1) if m else None
 
 
+_HEALTH_CACHE = {"ts": 0.0, "info": None}
+_HEALTH_TTL = 15.0  # 秒：CLI 冷启动 25~60 秒，短时缓存避免每次打开上传页都等一轮
+
+
 def health():
+    # 短时 TTL 缓存：解析工具的就绪状态/额度不会在 15 秒内变化，
+    # 重复打开上传页（每次都会探一次 /api/health）不必反复付 CLI 冷启动的代价。
+    now = time.time()
+    if _HEALTH_CACHE["info"] is not None and (now - _HEALTH_CACHE["ts"]) < _HEALTH_TTL:
+        return _HEALTH_CACHE["info"]
     if not find_cli():
-        return {"ok": False, "reason": "未找到解析工具 xparse-cli"}
+        info = {"ok": False, "reason": "未找到解析工具 xparse-cli"}
+        _HEALTH_CACHE.update(ts=now, info=info)
+        return info
     code, out, err = run_cli(["version"], timeout=45)
     if code != 0:
-        return {"ok": False, "reason": "解析工具不可用：%s" % ((err or out or ("退出码 %d" % code))[:200])}
+        info = {"ok": False, "reason": "解析工具不可用：%s" % ((err or out or ("退出码 %d" % code))[:200])}
+        _HEALTH_CACHE.update(ts=now, info=info)
+        return info
 
     info = {"ok": True, "profile": PROFILE, "cli": out.split()[-1] if out else ""}
     try:
@@ -198,7 +211,9 @@ def health():
         quota = extract_json(out2)
         if quota:
             if quota.get("authenticated") is False:
-                return {"ok": False, "reason": "解析工具尚未认证，请先在环境中完成登录"}
+                info = {"ok": False, "reason": "解析工具尚未认证，请先在环境中完成登录"}
+                _HEALTH_CACHE.update(ts=now, info=info)
+                return info
             info["authenticated"] = quota.get("authenticated")
             info["daily_page_limit"] = quota.get("daily_page_limit")
             info["daily_pages_remaining"] = quota.get("daily_pages_remaining")
@@ -206,6 +221,7 @@ def health():
             info["supported_content_types"] = quota.get("supported_content_types")
     except CliError:
         pass
+    _HEALTH_CACHE.update(ts=now, info=info)
     return info
 
 
@@ -711,6 +727,11 @@ class Handler(SimpleHTTPRequestHandler):
             if path == "/api/watched/remove":
                 STORE.remove_watched(body.get("person_id"), body.get("indicator_id"))
                 return self.json_out({"ok": True})
+
+            if path == "/api/watched/copy":
+                added = STORE.copy_watched(body.get("from_person_id"),
+                                           body.get("to_person_id"))
+                return self.json_out({"ok": True, "added": added})
 
             # ---- V2 · 指标归一的人工修正
             if path == "/api/indicators/rename":

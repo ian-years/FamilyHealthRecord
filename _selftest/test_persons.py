@@ -301,6 +301,37 @@ def main():
                   str(stw.list_watched(987)))
             check('「未指定」没有关注清单（0 不是成员，哨兵语义不被绕过）',
                   stw.list_watched(0) == [], str(stw.list_watched(0)))
+
+            print('\n=== 16. 关注集复制（copy_watched）只合并不覆盖 ===')
+            # 造三个真实指标，成员 1 关注 glu_fast/g2，成员 2 已关注 g4（目标已有部分关注）
+            c = stw._conn()
+            try:
+                for k, nm in [('g2', u'餐后血糖'), ('g3', u'糖化血红蛋白'), ('g4', u'总胆固醇')]:
+                    c.execute('INSERT INTO indicators (name, key, category, unit) '
+                              'VALUES (?,?,?,?)', (nm, k, u'生化', 'mmol/L'))
+                c.commit()
+                ids = {r['key']: r['id'] for r in c.execute(
+                    'SELECT id, key FROM indicators').fetchall()}
+            finally:
+                c.close()
+            stw.add_watched(1, ids['glu_fast'])
+            stw.add_watched(1, ids['g2'])
+            stw.add_watched(2, ids['g4'])   # 成员 2 已有 g4（复制后应保留）
+            added = stw.copy_watched(1, 2)
+            check('复制返回新增 2 项（glu_fast、g2；g4 是目标已有的不重复计）',
+                  added == 2, 'added=%s' % added)
+            w2 = {r['key'] for r in stw.list_watched(2)}
+            check('成员 2 的关注清单是「原有关注 ∪ 成员 1 的关注集」',
+                  w2 == {'g4', 'glu_fast', 'g2'}, str(sorted(w2)))
+            check('成员 1 的关注清单不变（复制不删源）',
+                  {r['key'] for r in stw.list_watched(1)} == {'glu_fast', 'g2'},
+                  str(sorted({r['key'] for r in stw.list_watched(1)})))
+            # 幂等：再复制一次不应新增
+            check('重复复制幂等（第二次新增 0 项）', stw.copy_watched(1, 2) == 0)
+            # 非法：复制给自己 / id=0 / 名单外
+            expect_error('copy_watched 拒绝复制给自己', lambda: stw.copy_watched(1, 1), '同一位')
+            expect_error('copy_watched 拒绝 id=0', lambda: stw.copy_watched(0, 2), '真实成员')
+            expect_error('copy_watched 拒绝名单外成员', lambda: stw.copy_watched(987, 2), '名单')
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
     finally:

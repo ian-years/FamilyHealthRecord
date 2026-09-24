@@ -95,6 +95,28 @@ function personOptions(cur, skipAll) {
   return opts.join('');
 }
 
+// 全局成员视图下拉：与概览切换器同语义（all=全部 / 0=未指定 / id=成员），
+// 供健康档案、原始资料档案、药品页复用 —— 三处读写的都是 S.personView，
+// 一处选人全站跟随（§11 待办 14）。
+// value 约定沿用旧筛选器：''=全部、'__none__'=未指定、id=成员 —— 这样既有调用方
+// 与 E2E 自测（还在用 '__none__' 哨兵）都不受影响，映射由 setPersonView 统一做。
+function personViewOptions() {
+  var opts = '<option value=""' + (L.isAllView(S.personView) ? ' selected' : '') + '>全部成员</option>';
+  S.persons.forEach(function (p) {
+    opts += '<option value="' + attr(String(p.id)) + '"' +
+      (String(S.personView) === String(p.id) ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+  });
+  opts += '<option value="__none__"' + (Number(S.personView) === 0 ? ' selected' : '') + '>未指定</option>';
+  return opts;
+}
+
+// 把筛选下拉的 value 规整成 S.personView 的三态（null=全部 / 0=未指定 / id=成员）。
+function personViewFromSelect(v) {
+  if (v === '' || v === null || v === undefined || v === 'all') return null;
+  if (v === '__none__') return 0;
+  return Number(v);
+}
+
 // 筛选 predicate：返回 true 表示命中。
 // '__none__' 是下拉里那个「未指定」的哨兵值，专门用来把没有归属的老档案挑出来。
 function personMatch(rec, filter) {
@@ -1503,7 +1525,9 @@ function renderOverview() {
   var recs = bucket('documents').rows.filter(function (r) {
     return L.personMatches(r, S.personView);
   });
-  var drugs = bucket('drugs').rows;
+  var drugs = bucket('drugs').rows.filter(function (d) {
+    return L.personMatches(d, S.personView);
+  });
   var cat = catalogList();
   var tl = L.groupTimeline(recs);
   var activity = L.buildActivity(recs);
@@ -1599,7 +1623,7 @@ function renderOverview() {
   // 会在药品页算进某一组、在这张卡上却谁都不算（同一个事实两处各写一遍的老毛病）。
   var cur = drugs.filter(function (d) { return L.drugStatusGroup(d) === 'current'; });
   var todayInUse = cur.filter(function (d) { return L.isInUseToday(d); });
-  html += '<div class="card"><div class="card-h"><h3>用药概况 <span class="sub">药品不区分成员，这里始终是全家</span></h3>' +
+  html += '<div class="card"><div class="card-h"><h3>用药概况 <span class="sub">按所选成员</span></h3>' +
     '<button class="btn sm" data-go-btn="drugs">药品管理</button></div><div class="card-b">' +
     '<div class="kv" style="grid-template-columns:100px minmax(0,1fr)">' +
     '<dt>当前用药</dt><dd>' + cur.length + ' 种<div class="muted" style="font-size:11.5px">其中今日在用 ' + todayInUse.length + ' 种</div></dd>' +
@@ -1634,9 +1658,11 @@ function personSwitcherHtml() {
 }
 
 async function setPersonView(v) {
-  S.personView = (v === 'all') ? null : Number(v);
+  S.personView = personViewFromSelect(v);
   S.followNotice = '';
-  renderOverview();
+  // 成员视图是全局筛选态：概览、健康档案、原始资料档案、药品页共用同一个人。
+  // 改完按当前页面刷新，让「一处选人全站跟随」成立。
+  renderCurrent();
 }
 
 function bindOverview() {
@@ -1682,10 +1708,11 @@ function renderTimeline() {
   all.forEach(function (r) { var t = L.normalizeDocType(r.document_type); if (types.indexOf(t) < 0) types.push(t); });
 
   // 筛选真实作用于全部已加载记录；清空筛选后恢复完整数据
+  // 成员这一维走全局 S.personView（与概览/档案/药品共用同一人，§11 待办 14）。
   var filtered = all.filter(function (r) {
     if (filters.type && L.normalizeDocType(r.document_type) !== filters.type) return false;
     if (filters.hospital && r.hospital !== filters.hospital) return false;
-    if (filters.person && !personMatch(r, filters.person)) return false;
+    if (!L.personMatches(r, S.personView)) return false;
     if (filters.q) {
       var hay = [r.title, r.hospital, r.department, r.doctor, r.source_file, r.key_information].join(' ');
       if (hay.toLowerCase().indexOf(filters.q.toLowerCase()) < 0) return false;
@@ -1718,7 +1745,7 @@ function renderTimeline() {
       return '<option value="' + attr(h) + '"' + (filters.hospital === h ? ' selected' : '') + '>' + esc(h) + '</option>';
     }).join('') + '</select>' +
     (personSupported()
-      ? '<select id="tlPerson">' + personOptions(filters.person) + '</select>'
+      ? '<select id="tlPerson">' + personViewOptions() + '</select>'
       : '') +
     '<button class="btn sm" id="tlClear">清空筛选</button>' +
     '<span class="muted" style="font-size:12px">命中 ' + filtered.length + ' / ' + all.length + ' 份</span>' +
@@ -1799,7 +1826,7 @@ function bindTimeline() {
   }
   var t = $('tlType'); if (t) t.onchange = function () { S.filters.type = t.value; renderTimeline(); };
   var h = $('tlHosp'); if (h) h.onchange = function () { S.filters.hospital = h.value; renderTimeline(); };
-  var ps = $('tlPerson'); if (ps) ps.onchange = function () { S.filters.person = ps.value; renderTimeline(); };
+  var ps = $('tlPerson'); if (ps) ps.onchange = function () { setPersonView(ps.value); };
   var c = $('tlClear');
   if (c) c.onclick = function () { S.filters = { q: '', type: '', hospital: '', person: '' }; renderTimeline(); };
   qsa('[data-expand]').forEach(function (b) {
@@ -2170,6 +2197,15 @@ function renderImportPreview() {
     if (IMPORT.files.length) {
       h += '<div class="note">将上传 ' + IMPORT.files.length + ' 个原始文件：' +
         IMPORT.files.map(function (f) { return esc(f.name); }).join('、') + '</div>';
+      /* 混多人资料提示（§11 待办 10）：一次选多个文件会被合并进同一批记录、
+         只能挂一个归属人。文件多于记录数时，多半是多个文件被并成了一条档案 ——
+         如果这些文件其实属于不同成员，按人筛选时其他人会看不到自己的那份。 */
+      if (IMPORT.files.length > 1 && p.records.length === 1) {
+        h += '<div class="ok-bar" style="border-color:var(--blue)">' +
+          '注意：你选了 ' + IMPORT.files.length + ' 个文件，但只生成 <b>1</b> 条记录，' +
+          '它们会合并成一条档案、归到同一位成员。若这些文件包含<b>不同成员</b>的报告，' +
+          '请<b>按人分批上传</b>（一次只选同一人的文件），否则按成员筛选时其他人会看不到自己的资料。</div>';
+      }
     } else {
       h += '<div class="note">未选择原始文件：记录可以写入，但详情页会明确显示「原始文件未留存」，并允许随后补传。</div>';
     }
@@ -2328,7 +2364,7 @@ function renderArchive() {
   var f = S.archFilter;
   var docs = all.filter(function (r) {
     if (f.type && L.normalizeDocType(r.document_type) !== f.type) return false;
-    if (f.person && !personMatch(r, f.person)) return false;
+    if (!L.personMatches(r, S.personView)) return false;
     if (f.q) {
       var hay = [r.title, r.source_file, r.hospital].join(' ');
       if (hay.toLowerCase().indexOf(f.q.toLowerCase()) < 0) return false;
@@ -2359,7 +2395,7 @@ function renderArchive() {
     '<select id="arType"><option value="">全部类型</option>' + types.map(function (t) {
       return '<option value="' + attr(t) + '"' + (f.type === t ? ' selected' : '') + '>' + esc(t) + '</option>';
     }).join('') + '</select>' +
-    (personSupported() ? '<select id="arPerson">' + personOptions(f.person) + '</select>' : '') +
+    (personSupported() ? '<select id="arPerson">' + personViewOptions() + '</select>' : '') +
     '<button class="btn sm" id="arClear">清空筛选</button></div>';
 
   h += '<div id="arMsg"></div>';
@@ -2393,7 +2429,7 @@ function renderArchive() {
   var q = $('arQ');
   if (q) q.oninput = function () { S.archFilter.q = q.value; renderArchive(); var e2 = $('arQ'); if (e2) { e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); } };
   var t2 = $('arType'); if (t2) t2.onchange = function () { S.archFilter.type = t2.value; renderArchive(); };
-  var ps2 = $('arPerson'); if (ps2) ps2.onchange = function () { S.archFilter.person = ps2.value; renderArchive(); };
+  var ps2 = $('arPerson'); if (ps2) ps2.onchange = function () { setPersonView(ps2.value); };
   var c2 = $('arClear'); if (c2) c2.onclick = function () { S.archFilter = { q: '', type: '', person: '' }; renderArchive(); };
   qsa('#s-archive [data-doc]').forEach(function (row) {
     row.onclick = function (e) {
@@ -2842,7 +2878,8 @@ function drugCard(d) {
   return '<div class="drug-card" data-drug="' + attr(d.id) + '">' +
     '<div class="top"><div style="min-width:0"><div class="nm">' + esc(nz(d.drug_name) || '(无药品名)') + '</div>' +
     '<div class="gen">' + esc(nz(d.generic_name) || '通用名未提供') + (nz(d.brand_name) ? ' · ' + esc(d.brand_name) : '') + '</div></div>' +
-    '<span class="tag' + (d.status === '正在服用' ? '' : ' gray') + '">' + esc(d.status || '备用药') + '</span></div>' +
+    '<span class="tag' + (d.status === '正在服用' ? '' : ' gray') + '">' + esc(d.status || '备用药') + '</span>' +
+    personBadge(d) + '</div>' +
     '<div class="rows">' +
     '<div class="rr"><span class="lab">规格剂型</span><span>' + esc(nz(d.strength) || '未提供') + ' · ' + esc(nz(d.dosage_form) || '未提供') + '</span></div>' +
     '<div class="rr"><span class="lab">个人用量</span><span>' + esc(nz(d.dose_each_time) || '未确认') + ' · ' + esc(nz(d.frequency) || '未确认') + '</span></div>' +
@@ -2856,7 +2893,9 @@ function drugCard(d) {
 
 function renderDrugs() {
   var host = $('s-drugs');
-  var all = bucket('drugs').rows;
+  var all = bucket('drugs').rows.filter(function (d) {
+    return L.personMatches(d, S.personView);
+  });
   var cur = all.filter(function (d) { return L.drugStatusGroup(d.status) === 'current'; });
   var res = all.filter(function (d) { return L.drugStatusGroup(d.status) === 'reserve'; });
   var his = all.filter(function (d) { return L.drugStatusGroup(d.status) === 'history'; });
@@ -2866,6 +2905,14 @@ function renderDrugs() {
   h += '<div class="page-head"><h2>药品管理</h2>' +
     '<p>按当前用药、备用 / 药箱、历史用药三组管理。所有状态变更都会真实持久化，并追加到药品的状态事件历史里，不覆盖旧记录。</p></div>';
   h += '<div class="sync-strip sync-host"></div>';
+
+  // 成员视图：与概览/档案共用同一个人（§11 待办 9 + 14）
+  if (personSupported()) {
+    h += '<div class="filters" style="margin-bottom:14px">' +
+      '<select id="drugPerson">' + personViewOptions() + '</select>' +
+      '<span class="muted" style="font-size:12px">按成员看：当前显示 ' +
+      esc(personViewLabel()) + ' 的药品</span></div>';
+  }
 
   h += '<div class="today-bar"><div class="h">今日在用用药' +
     '<span class="tag gray">按已确认的个人计划</span></div>';
@@ -2900,6 +2947,7 @@ function renderDrugs() {
 
   host.innerHTML = h;
 
+  var dp2 = $('drugPerson'); if (dp2) dp2.onchange = function () { setPersonView(dp2.value); };
   var ad = $('btnAddDrug'); if (ad) ad.onclick = function () { openImportDrawer('drugs'); };
   var dp = $('btnDrugPolicy'); if (dp) dp.onclick = function () {
     openDrawer('drawer-policy');

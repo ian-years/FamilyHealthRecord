@@ -14,11 +14,13 @@ var V2 = (function () {
 
   var C = null;                 // app.js 注入的上下文
   var enabled = false;          // 后端关系表是否就位
-  var indicators = [];          // 可关注的全部指标
+  var indicators = [];          // 可关注的全部指标（「添加关注」抽屉用）
   var watched = [];             // 当前成员关注的指标
+  var allWithData = [];         // 全部有数据的指标（概览未关注行用）
   var fees = null;
   var cats = [];
   var busy = false;
+  var followSort = 'name';      // 概览关注表排序键：name | points | date
   /* 时间范围自己存一份，默认「全部」。
      不复用 app 的 S.range —— 那边默认近 12 个月，而体检常常一年一次，
      按 12 个月过滤后多数指标只剩一个点，趋势就永远画不出来。 */
@@ -89,11 +91,13 @@ var V2 = (function () {
     return Promise.all([
       get('/api/indicators/categories'),
       get('/api/watched' + qs),
-      get('/api/fees/summary' + qs)
+      get('/api/fees/summary' + qs),
+      get('/api/indicators' + (qs ? (qs + '&only_data=1') : '?only_data=1'))
     ]).then(function (arr) {
       cats = (arr[0] && arr[0].categories) || [];
       watched = (arr[1] && arr[1].watched) || [];
       fees = (arr[2] && arr[2].fees) || null;
+      allWithData = (arr[3] && arr[3].indicators) || [];
       renderFollowCard();
       renderFeesCards();
       busy = false;
@@ -101,6 +105,52 @@ var V2 = (function () {
   }
 
   /* ------------------------------------------------------------ 关注指标卡 */
+
+  /* 概览关注指标卡：已关注排前面，未关注但有数据的追加在下面（可展开/收起），
+     两组都支持按名称/分类、点数、最新日期排序。 */
+  function sortFollowRows(list) {
+    return list.slice().sort(function (a, b) {
+      if (followSort === 'name') {
+        return (a.name || '').localeCompare(b.name || '', 'zh');
+      }
+      if (followSort === 'date') {
+        // ISO 日期字符串字典序 == 时间序，空日期排最后
+        var da = a.last_date || '', db = b.last_date || '';
+        if (da === db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
+        return db.localeCompare(da);   // 降序：最新在前
+      }
+      // points：点数降序
+      return (b.date_count || 0) - (a.date_count || 0);
+    });
+  }
+  function followRowHtml(w, isFollowed) {
+    var esc = C.esc, attr = C.attr;
+    var has = w.last_value !== null && w.last_value !== undefined && w.last_value !== '';
+    var spark = (w.spark && w.spark.length >= 2)
+      ? C.sparkline(w.spark.map(function (p) { return { value: p.value }; }))
+      : '<span class="muted" style="font-size:11px">不足 2 点</span>';
+    return '<tr' + (isFollowed ? '' : ' class="unfollowed"') + '>' +
+      '<td><b>' + esc(w.name) + '</b>' +
+      (w.is_text ? ' <span class="tag gray">文本</span>' : '') +
+      (isFollowed ? '' : ' <span class="muted" style="font-size:11px;font-weight:400">未关注</span>') + '</td>' +
+      '<td class="muted" style="font-size:12px">' + esc(w.category || '其他') + '</td>' +
+      '<td>' + (has
+        ? '<b class="num">' + esc(w.last_value) + '</b> <span class="muted">' + esc(w.last_unit || '') + '</span>'
+        : '<span class="muted">—</span>') +
+      (w.last_flag ? ' <span class="flag">' + esc(w.last_flag) + '</span>' : '') + '</td>' +
+      '<td class="num" style="font-size:12px">' +
+      (w.last_date ? esc(C.L.fmtCN(w.last_date)) : '<span class="muted">—</span>') + '</td>' +
+      '<td class="r num">' + (w.date_count || 0) + '</td>' +
+      '<td>' + spark + '</td>' +
+      '<td class="r" style="white-space:nowrap">' +
+      '<button class="btn sm" data-v2-ind="' + attr(w.id) + '">详情</button> ' +
+      (isFollowed
+        ? '<button class="btn sm ghost" data-v2-unwatch="' + attr(w.id) + '">取消关注</button>'
+        : '<button class="btn sm" data-v2-watch="' + attr(w.id) + '">关注</button>') +
+      '</td></tr>';
+  }
 
   function renderFollowCard() {
     var card = document.getElementById('cardFollow');
@@ -110,50 +160,63 @@ var V2 = (function () {
     var isAll = pid === null;
     var isUnassigned = pid === 0;   // 「未指定」：档案还没有归属成员
 
+    /* 未关注但有数据 = 全部有数据的指标 - 已关注集合。 */
+    var watchedIds = {};
+    watched.forEach(function (w) { watchedIds[w.id] = true; });
+    var unfollowed = allWithData.filter(function (i) { return !watchedIds[i.id]; });
+
+    var sortOptions = [
+      { k: 'name', label: '名称 / 分类' },
+      { k: 'points', label: '点数' },
+      { k: 'date', label: '最新日期' }
+    ];
     var head = '<div class="card-h"><h3>关注指标 <span class="sub">最新结果与趋势概览</span></h3>' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
       '<button class="btn sm" id="v2BtnFollow">添加关注</button>' +
       '<button class="btn sm" id="v2BtnManage">指标目录</button>' +
       '<button class="btn sm" id="v2BtnCustom">自定义指标</button>' +
+      '<span class="muted" style="font-size:11px">排序</span>' +
+      '<select class="sm" id="v2FollowSort" style="width:auto;padding:3px 6px">' +
+      sortOptions.map(function (o) {
+        return '<option value="' + o.k + '"' + (followSort === o.k ? ' selected' : '') + '>' +
+          o.label + '</option>';
+      }).join('') + '</select>' +
       '</div></div>';
 
     var body = '<div class="card-b">';
-    body += '<div class="note" style="margin:0 0 11px">可关注的指标来自已归档报告里的全部检验项' +
-      '（已归一化：合并同一指标的不同写法、修正识别错误）。' +
+    body += '<div class="note" style="margin:0 0 11px">已关注的排前面，未关注但有数据的列在下面。' +
+      '可关注的指标来自已归档报告里的全部检验项（已归一化）。' +
       (isAll ? '当前是「全部成员」视图，切到具体成员才能看到各人的数值与趋势。'
         : (isUnassigned ? '当前是「未指定」视图（档案还没有归属成员）。关注是按成员保存的，切到具体成员才能看到。' : '')) +
       '</div>';
 
-    if (!watched.length) {
+    var tblHead = '<table class="tbl"><thead><tr>' +
+      '<th>指标名</th><th>分类</th><th>最新结果</th><th>最新日期</th>' +
+      '<th class="r">点数</th><th>小趋势</th><th></th></tr></thead><tbody>';
+
+    var followedRows = sortFollowRows(watched);
+    var unfollowedRows = sortFollowRows(unfollowed);
+
+    if (!followedRows.length && !unfollowedRows.length) {
       body += '<div class="empty">' + (isUnassigned
         ? '「未指定」的档案还没有归属成员，没有属于自己的关注清单。'
-        : '还没有关注任何指标。点「添加关注」，从已识别的指标里挑选。') + '</div>';
+        : '还没有任何指标数据。归档资料后这里会列出可关注的指标。') + '</div>';
     } else {
-      body += '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
-        '<th>指标名</th><th>分类</th><th>最新结果</th><th>最新日期</th>' +
-        '<th class="r">点数</th><th>小趋势</th><th></th></tr></thead><tbody>';
-      watched.forEach(function (w) {
-        var has = w.last_value !== null && w.last_value !== undefined && w.last_value !== '';
-        var spark = (w.spark && w.spark.length >= 2)
-          ? C.sparkline(w.spark.map(function (p) { return { value: p.value }; }))
-          : '<span class="muted" style="font-size:11px">不足 2 点</span>';
-        body += '<tr>' +
-          '<td><b>' + esc(w.name) + '</b>' +
-          (w.is_text ? ' <span class="tag gray">文本</span>' : '') + '</td>' +
-          '<td class="muted" style="font-size:12px">' + esc(w.category || '其他') + '</td>' +
-          '<td>' + (has
-            ? '<b class="num">' + esc(w.last_value) + '</b> <span class="muted">' + esc(w.last_unit || '') + '</span>'
-            : '<span class="muted">—</span>') +
-          (w.last_flag ? ' <span class="flag">' + esc(w.last_flag) + '</span>' : '') + '</td>' +
-          '<td class="num" style="font-size:12px">' +
-          (w.last_date ? esc(C.L.fmtCN(w.last_date)) : '<span class="muted">—</span>') + '</td>' +
-          '<td class="r num">' + (w.date_count || 0) + '</td>' +
-          '<td>' + spark + '</td>' +
-          '<td class="r" style="white-space:nowrap">' +
-          '<button class="btn sm" data-v2-ind="' + attr(w.id) + '">详情</button> ' +
-          '<button class="btn sm ghost" data-v2-unwatch="' + attr(w.id) + '">取消关注</button>' +
+      body += '<div class="tbl-scroll">' + tblHead;
+
+      if (!followedRows.length) {
+        body += '<tr><td colspan="7" class="muted">' +
+          (isUnassigned ? '未指定视图没有关注清单。' : '还没有关注任何指标，下面只列出未关注但有数据的。') +
           '</td></tr>';
-      });
+      } else {
+        body += followedRows.map(function (w) { return followRowHtml(w, true); }).join('');
+      }
+
+      if (unfollowedRows.length) {
+        body += '<tr class="sep-row"><td colspan="7">' +
+          '<div class="sep-note">— 未关注但有数据（' + unfollowedRows.length + ' 项）—</div></td></tr>';
+        body += unfollowedRows.map(function (w) { return followRowHtml(w, false); }).join('');
+      }
       body += '</tbody></table></div>';
     }
     body += '</div>';
@@ -166,6 +229,8 @@ var V2 = (function () {
     if (b2) b2.onclick = openCatalogManager;
     var b3 = document.getElementById('v2BtnCustom');
     if (b3) b3.onclick = function () { if (C.openCustomDrawer) C.openCustomDrawer(); };
+    var bs = document.getElementById('v2FollowSort');
+    if (bs) bs.onchange = function () { followSort = bs.value; renderFollowCard(); };
 
     /* 「关注指标」KPI 与这张卡必须同源：卡上是 /api/watched 的清单，
        KPI 却还在数目录行上的 followers 就会出现「卡里 3 项、KPI 写 5 项」。
@@ -185,6 +250,20 @@ var V2 = (function () {
         post('/api/watched/remove', {
           person_id: (cur === null ? 'all' : cur),
           indicator_id: Number(b.getAttribute('data-v2-unwatch'))
+        }).then(function () { refresh(); });
+      };
+    });
+    C.qsa('#cardFollow [data-v2-watch]').forEach(function (b) {
+      b.onclick = function () {
+        var cur = curPerson();
+        if (cur === null || cur === 0) {
+          /* 「全部」/「未指定」视图没有可写的主语，提示先去选成员。 */
+          notify('关注是按成员保存的：请先切到具体成员，再点「关注」。', true);
+          return;
+        }
+        post('/api/watched/add', {
+          person_id: cur,
+          indicator_id: Number(b.getAttribute('data-v2-watch'))
         }).then(function () { refresh(); });
       };
     });
@@ -357,7 +436,18 @@ var V2 = (function () {
           '<div id="v2PickList" class="pick-list"></div>' +
           '<div class="df" style="border:0;padding:13px 0 0;justify-content:flex-start">' +
           '<button class="btn primary" id="v2FollowSave">保存改动</button>' +
-          '<button class="btn" id="v2FollowAll">关注全部有数据的指标</button></div>';
+          '<button class="btn" id="v2FollowAll">关注全部有数据的指标</button></div>' +
+          '<div class="field" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">' +
+          '<label>复制关注集</label>' +
+          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+          '<select id="v2CopyFrom">' + persons.filter(function (p) {
+            return Number(p.id) !== Number(pickedPid);
+          }).map(function (p) {
+            return '<option value="' + attr(p.id) + '">' + esc(p.name) + '</option>';
+          }).join('') + '</select>' +
+          '<button class="btn sm" id="v2CopyBtn">复制到「' + esc(personName(pickedPid)) + '」</button>' +
+          '</div>' +
+          '<div class="hint">把另一位成员的关注清单合并进当前成员：已有关注原样保留，只补当前成员还没有的项。</div></div>';
 
         function statLine(shown) {
           // 当前选中成员的性别（「全部」视图下抽屉里也有选人下拉）
@@ -442,6 +532,28 @@ var V2 = (function () {
             refresh();
           });
         };
+
+        var copySel = document.getElementById('v2CopyFrom');
+        var copyBtn = document.getElementById('v2CopyBtn');
+        if (copyBtn && copySel) {
+          copyBtn.onclick = function () {
+            if (!copySel.value) { notify('没有可复制的成员。', true); return; }
+            var from = Number(copySel.value);
+            if (from === Number(pickedPid)) { notify('不能复制给自己。', true); return; }
+            post('/api/watched/copy', { from_person_id: from, to_person_id: pickedPid })
+              .then(function (r) {
+                if (r && r.ok) {
+                  notify('已复制关注集：新增 ' + (r.added || 0) + ' 项关注。');
+                  load();
+                  refresh();
+                } else {
+                  notify('复制失败：' + ((r && r.reason) || '未知'), true);
+                }
+              })['catch'](function (e) {
+                notify('复制失败：' + (e && e.message ? e.message : '未知'), true);
+              });
+          };
+        }
       });
     }
     load();

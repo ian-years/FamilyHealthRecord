@@ -6,7 +6,7 @@
 <title>个人健康档案工作台</title>
 <!-- 图标内联为 SVG：本地版不打额外请求，也避免浏览器去讨一个不存在的 /favicon.ico -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f5fa9'/%3E%3Cpath d='M16 23.4s-6.8-4.3-6.8-9.1A4.1 4.1 0 0 1 16 11.3a4.1 4.1 0 0 1 6.8 3c0 4.8-6.8 9.1-6.8 9.1z' fill='%23ffffff'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="styles.css?v=20260924-2">
+<link rel="stylesheet" href="styles.css?v=20260924-3">
 </head>
 <body>
 
@@ -231,11 +231,11 @@
 
 <!-- 本地版不加载任何云端 SDK，也不再有配置文件：数据全部走 localdb.js 的本地存储。
      资源仍带版本参数，便于将来换用带缓存的静态服务器时能可靠刷新。 -->
-<script src="localdb.js?v=20260924-2"></script>
-<script src="logic.js?v=20260924-2"></script>
-<script src="app.js?v=20260924-2"></script>
+<script src="localdb.js?v=20260924-3"></script>
+<script src="logic.js?v=20260924-3"></script>
+<script src="app.js?v=20260924-3"></script>
 <!-- V2 关系型数据模块：依赖 app.js 里的全局函数，必须排在后面。
      后端没有 V2 表时它会安静地什么都不做，不影响原有页面。 -->
-<script src="v2.js?v=20260924-2"></script>
+<script src="v2.js?v=20260924-3"></script>
 </body>
 </html>

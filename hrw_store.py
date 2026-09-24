@@ -1711,12 +1711,15 @@ class Store(object):
                 ' (SELECT o.unit FROM observations o WHERE o.indicator_id=i.id',
                 '  AND (?=0 OR o.person_id IS ?) ORDER BY o.obs_date DESC, o.id DESC LIMIT 1)'
                 '  AS last_unit,',
+                ' (SELECT o.flag FROM observations o WHERE o.indicator_id=i.id',
+                '  AND (?=0 OR o.person_id IS ?) ORDER BY o.obs_date DESC, o.id DESC LIMIT 1)'
+                '  AS last_flag,',
                 ' EXISTS(SELECT 1 FROM watched_indicators w WHERE w.indicator_id=i.id',
                 '  AND w.person_id=?) AS watched',
                 'FROM indicators i WHERE 1=1',
             ]
             args = [p_flag, p_val, p_flag, p_val, p_flag, p_val,
-                    p_flag, p_val, p_flag, p_val, p_val]
+                    p_flag, p_val, p_flag, p_val, p_flag, p_val, p_val]
             if not include_text:
                 sql.append(' AND IFNULL(i.is_text,0)=0')
             if category:
@@ -1739,6 +1742,30 @@ class Store(object):
                 out = [r for r in out if r.get('sex') != 'female']
             elif gender == u'女':
                 out = [r for r in out if r.get('sex') != 'male']
+            # 迷你趋势：给有数据的指标补 sparkline（概览未关注行也要画小趋势）。
+            # 复用 list_watched 的同一套取数与定性映射，避免两处各写一遍。
+            for r in out:
+                r['spark'] = []
+                if not r.get('date_count'):
+                    continue
+                pts = c.execute(
+                    'SELECT obs_date, numeric_value, value FROM observations '
+                    'WHERE indicator_id=? AND (?=0 OR person_id IS ?) '
+                    'AND numeric_value IS NOT NULL ORDER BY obs_date, id',
+                    (r['id'], p_flag, p_val)).fetchall()
+                r['spark'] = [{'date': p['obs_date'], 'value': p['numeric_value']}
+                              for p in pts[-12:]]
+                if not r['spark']:
+                    import hrw_indicators as I
+                    qual = c.execute(
+                        'SELECT obs_date, value FROM observations '
+                        'WHERE indicator_id=? AND (?=0 OR person_id IS ?) '
+                        'ORDER BY obs_date, id', (r['id'], p_flag, p_val)).fetchall()
+                    mapped = [(p['obs_date'], I.qualitative_ordinal(p['value']))
+                              for p in qual]
+                    if mapped and all(ov is not None for _d, ov in mapped):
+                        r['spark'] = [{'date': dt, 'value': ov}
+                                      for dt, ov in mapped[-12:]]
             return out
         finally:
             c.close()
@@ -1897,6 +1924,46 @@ class Store(object):
             finally:
                 c.close()
         return True
+
+    def copy_watched(self, from_person_id, to_person_id):
+        """把某成员的关注集复制给另一位（§11 待办 16）。
+
+        「只合并、不清空」：目标成员已有的关注原样保留，只补他还没有的。
+        两个 id 都必须是名单里的真实成员（复用 add_watched 的同一判据），
+        且不能同一个人复制给自己。返回新增的关注条数。
+        """
+        fp = self.check_person_id(from_person_id)
+        tp = self.check_person_id(to_person_id)
+        if fp <= 0 or tp <= 0:
+            raise StoreError('关注复制必须在两个真实成员之间进行（0 代表「未指定」，不是成员）')
+        members = {int(p.get('id') or 0) for p in self.persons()}
+        if fp not in members or tp not in members:
+            raise StoreError('关注复制的主人不在成员名单里')
+        if fp == tp:
+            raise StoreError('不能把关注集复制给同一位成员')
+        with self._lock:
+            c = self._conn()
+            try:
+                # 目标已有关注的指标 id 集合，只补缺失的
+                have = {r['indicator_id'] for r in c.execute(
+                    'SELECT indicator_id FROM watched_indicators WHERE person_id=?',
+                    (tp,)).fetchall()}
+                src = c.execute(
+                    'SELECT indicator_id FROM watched_indicators WHERE person_id=?',
+                    (fp,)).fetchall()
+                added = 0
+                now = now_iso()
+                for r in src:
+                    if r['indicator_id'] in have:
+                        continue
+                    c.execute('INSERT OR IGNORE INTO watched_indicators '
+                              '(person_id, indicator_id, created_at) VALUES (?,?,?)',
+                              (tp, r['indicator_id'], now))
+                    added += 1
+                c.commit()
+                return added
+            finally:
+                c.close()
 
     # ---------------------------------------------------------- 趋势
 

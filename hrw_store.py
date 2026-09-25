@@ -1685,6 +1685,7 @@ class Store(object):
         gender='男'/'女' 时滤掉异性专属指标（前列腺不进女性清单，白带常规不进男性清单）；
         None 或未设置性别的成员不做过滤。
         """
+        import hrw_indicators as I
         c = self._conn()
         try:
             # 「全部」不过滤人；「未指定」只收 person_id 为空的行；其余按成员。
@@ -1714,12 +1715,19 @@ class Store(object):
                 ' (SELECT o.flag FROM observations o WHERE o.indicator_id=i.id',
                 '  AND (?=0 OR o.person_id IS ?) ORDER BY o.obs_date DESC, o.id DESC LIMIT 1)'
                 '  AS last_flag,',
+                ' (SELECT o.reference FROM observations o WHERE o.indicator_id=i.id',
+                '  AND (?=0 OR o.person_id IS ?) ORDER BY o.obs_date DESC, o.id DESC LIMIT 1)'
+                '  AS last_reference,',
+                ' (SELECT o.numeric_value FROM observations o WHERE o.indicator_id=i.id',
+                '  AND (?=0 OR o.person_id IS ?) AND o.numeric_value IS NOT NULL'
+                '  ORDER BY o.obs_date DESC, o.id DESC LIMIT 1) AS last_numeric,',
                 ' EXISTS(SELECT 1 FROM watched_indicators w WHERE w.indicator_id=i.id',
                 '  AND w.person_id=?) AS watched',
                 'FROM indicators i WHERE 1=1',
             ]
             args = [p_flag, p_val, p_flag, p_val, p_flag, p_val,
-                    p_flag, p_val, p_flag, p_val, p_flag, p_val, p_val]
+                    p_flag, p_val, p_flag, p_val, p_flag, p_val,
+                    p_flag, p_val, p_flag, p_val, p_val]
             if not include_text:
                 sql.append(' AND IFNULL(i.is_text,0)=0')
             if category:
@@ -1766,6 +1774,9 @@ class Store(object):
                     if mapped and all(ov is not None for _d, ov in mapped):
                         r['spark'] = [{'date': dt, 'value': ov}
                                       for dt, ov in mapped[-12:]]
+                # 最新一次观测的异常方向（概览关注卡/表格据此标箭头）
+                r['abnormal'] = I.abnormal_direction(
+                    r.get('last_flag'), r.get('last_numeric'), r.get('last_reference'))
             return out
         finally:
             c.close()
@@ -1847,6 +1858,8 @@ class Store(object):
                 '  AND o.person_id=? ORDER BY o.obs_date DESC, o.id DESC LIMIT 1) AS last_date,'
                 ' (SELECT o.flag FROM observations o WHERE o.indicator_id=i.id'
                 '  AND o.person_id=? ORDER BY o.obs_date DESC, o.id DESC LIMIT 1) AS last_flag,'
+                ' (SELECT o.reference FROM observations o WHERE o.indicator_id=i.id'
+                '  AND o.person_id=? ORDER BY o.obs_date DESC, o.id DESC LIMIT 1) AS last_reference,'
                 ' (SELECT COUNT(DISTINCT o.obs_date) FROM observations o'
                 '  WHERE o.indicator_id=i.id AND o.person_id=?) AS date_count,'
                 ' (SELECT o.numeric_value FROM observations o WHERE o.indicator_id=i.id'
@@ -1855,7 +1868,7 @@ class Store(object):
                 ' FROM watched_indicators w JOIN indicators i ON i.id=w.indicator_id'
                 ' WHERE w.person_id=? ORDER BY w.id',
                 (person_id, person_id, person_id, person_id, person_id, person_id,
-                 person_id)).fetchall()
+                 person_id, person_id)).fetchall()
             out = []
             for r in rows:
                 d = dict(r)
@@ -1878,6 +1891,10 @@ class Store(object):
                     if mapped and all(ov is not None for _d, ov in mapped):
                         d['spark'] = [{'date': dt, 'value': ov}
                                       for dt, ov in mapped[-12:]]
+                # 最新一次观测的异常方向（概览关注卡据此标箭头）
+                import hrw_indicators as I
+                d['abnormal'] = I.abnormal_direction(
+                    d.get('last_flag'), d.get('last_numeric'), d.get('last_reference'))
                 out.append(d)
             return out
         finally:
@@ -2167,6 +2184,8 @@ class Store(object):
                     'document_id': r['document_id'],
                     'document_title': r['doc_title'],
                     'source': r['source'],
+                    'abnormal': I.abnormal_direction(
+                        r['flag'], r['numeric_value'], r['reference']),
                 })
             numeric_pts = [p for p in pts if p['numeric'] is not None]
             ordinal = False
@@ -2177,13 +2196,14 @@ class Store(object):
                 if all(ov is not None for _p, ov in qual):
                     ordinal = True
                     line_pts = [{'date': p['date'], 'value': ov, 'label': p['value'],
-                                 'pending': p['pending'], 'id': p['id']}
+                                 'pending': p['pending'], 'id': p['id'],
+                                 'abnormal': p['abnormal']}
                                 for p, ov in qual]
                     ovals = sorted({ov for _p, ov in qual})
                     ylabels = [{'v': ov, 'label': I.ordinal_label(ov)} for ov in ovals]
             if not ordinal:
                 line_pts = [{'date': p['date'], 'value': p['numeric'], 'pending': p['pending'],
-                             'id': p['id']} for p in numeric_pts]
+                             'id': p['id'], 'abnormal': p['abnormal']} for p in numeric_pts]
                 ylabels = None
             line_pts.sort(key=lambda p: (p['date'] or '', p['id']))
             nums_for_stats = [p['value'] for p in line_pts] if ordinal \
@@ -2216,6 +2236,7 @@ class Store(object):
             'document_id': r['document_id'], 'document_title': r['doc_title'],
             'source': r['source'], 'person_id': r['person_id'],
             'person_name': r['person_name'],
+            'abnormal': I.abnormal_direction(r['flag'], r['numeric_value'], r['reference']),
         } for r in rows]
 
         return {'indicator': dict(ind), 'series': series, 'history': history,

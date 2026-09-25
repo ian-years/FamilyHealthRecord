@@ -365,6 +365,16 @@ html{scrollbar-width:thin;scrollbar-color:#d3dbe4 transparent}
 /* 指标组（血脂）的历史把四个分项混在一起，行首要标出项目名才读得懂 */
 .point-list .nm{color:var(--text-2);font-weight:600;flex:0 0 auto;max-width:220px}
 .point-list .va{font-weight:600;font-variant-numeric:tabular-nums}
+/* 异常方向箭头：偏高/偏低用深蓝加粗箭头 + 浅蓝底纹，保持蓝白灰配色，
+   不引入红黄绿。arrow 只表达「偏离参考方向」，不是诊断结论。 */
+.abn{display:inline-flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:12px;line-height:1;margin-left:2px;
+  color:var(--blue);background:var(--blue-soft);border-radius:4px;
+  padding:2px 5px;vertical-align:middle}
+.abn.up{color:#144d86}
+.abn.down{color:#144d86}
+/* 概览关注表里最新结果异常的行，整行给极浅蓝底，方便扫读 */
+.tbl tr[data-abn="1"] td{background:var(--blue-softer)}
 .point-list .orig{color:var(--text-3);font-size:11.5px}
 .src-chip{font-size:11px;padding:1px 7px;border-radius:4px;background:#eef1f5;color:var(--text-2);white-space:nowrap}
 .src-chip.report{background:var(--blue-soft);color:var(--blue)}

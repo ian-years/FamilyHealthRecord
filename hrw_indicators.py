@@ -194,6 +194,88 @@ def is_text_value(value):
     return True
 
 
+# ---------------------------------------------------------------- 异常方向判定
+#
+# 需求：异常的指标要和正常的在界面上有明显区分（箭头 / 深浅 / 底纹，不引入新颜色）。
+# 判据按「两者结合」的口径：
+#   1) 原文箭头优先 —— 报告自己印的 ↑/↓ 是医生给的最可靠信号，直接采信；
+#   2) 没有箭头时，再拿数值和参考范围比对（解析「3.9~6.1」「≤5.2」「<3.36」这类文本）。
+#
+# 这条只做「方向」判定（偏高 / 偏低 / 未知），不擅自下「异常=有病」的结论；
+# 它和 hrw_llm.py 里「不要自己判断异常」的约定并不冲突 —— 那边约束的是
+# LLM 从文本里「脑补」箭头，这里只是把已存在的数据（flag / reference）翻成
+# 界面上的视觉提示，不写回库、不改变任何原始字段。
+
+def parse_reference_range(reference):
+    """把参考范围文本解析成 (low, high) 数值边界。
+
+    支持的写法：
+        '3.9~6.1' / '3.9-6.1' / '130～175'      → (3.9, 6.1)
+        '≤5.2' / '<=5.2' / '<5.2'               → (None, 5.2)
+        '≥1.0' / '>1.0'                         → (1.0, None)
+        '0-4' / '130-175 g/L'（尾部带单位）       → (0, 4)
+        '1:80' / '阴性' / 空 / 纯文本             → None
+    解析不了就返回 None，调用方视为「无法判定」，绝不硬猜。
+    """
+    if reference is None:
+        return None
+    s = to_halfwidth(str(reference)).strip()
+    if not s:
+        return None
+    # 形如 '<5.2' / '≤5.2' / '>1.0' / '≥1.0'（可带 =）
+    m = re.match(r'^([<>])\s*=?\s*([+-]?\d+(?:\.\d+)?)', s)
+    if m:
+        v = float(m.group(2))
+        if m.group(1) == '<':
+            return (None, v)
+        return (v, None)
+    m = re.match(r'^([≤≥])\s*=?\s*([+-]?\d+(?:\.\d+)?)', s)
+    if m:
+        v = float(m.group(2))
+        if m.group(1) == '≤':
+            return (None, v)
+        return (v, None)
+    # 区间写法：两个数用 ~ ～ - — 连接，尾部可能挂着单位/文字。
+    # 分隔符允许连续横线（真实库里有「40--75」「0.25--1」这种双横线写法，
+    # 若只认单个 -，第二个 - 会被当成负号，解析成 40~-75 再翻转，全盘皆错）。
+    m = re.match(r'^\s*([+-]?\d+(?:\.\d+)?)\s*[~～\-—]+\s*'
+                 r'([+-]?\d+(?:\.\d+)?)', s)
+    if m:
+        a, b = float(m.group(1)), float(m.group(2))
+        if a > b:
+            a, b = b, a
+        return (a, b)
+    return None
+
+
+def abnormal_direction(flag, numeric_value, reference):
+    """判定一次观测的异常方向：'high' / 'low' / None（正常或无法判定）。
+
+    flag       —— 报告原文的提示符号（如 '↑' / '↓'），优先采信；
+    numeric_value —— 数值（parse_numeric 之后），用于和参考范围比对；
+    reference  —— 参考范围文本。
+    """
+    # 1) 原文箭头优先
+    if flag:
+        f = to_halfwidth(str(flag))
+        if '↑' in f or f.strip() in ('H', 'HIGH', 'high', '偏高'):
+            return 'high'
+        if '↓' in f or f.strip() in ('L', 'LOW', 'low', '偏低'):
+            return 'low'
+    # 2) 无箭头时按参考范围比对
+    if numeric_value is None:
+        return None
+    rng = parse_reference_range(reference)
+    if rng is None:
+        return None
+    low, high = rng
+    if low is not None and numeric_value < low:
+        return 'low'
+    if high is not None and numeric_value > high:
+        return 'high'
+    return None
+
+
 # ---------------------------------------------------------------- 同义词典
 # key -> (规范名, 分类, 首选单位, [别名...])
 # 别名写的是「人写出来的一切可能形态」，标准化后参与匹配。

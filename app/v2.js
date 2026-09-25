@@ -62,6 +62,15 @@ var V2 = (function () {
     return (cents < 0 ? '-¥' : '¥') + s;
   }
 
+  /** 异常方向 → 视觉标记（保持蓝白灰配色，不引入红黄绿）。
+   *  abnormal 为 'high'/'low' 时返回带箭头的 span；否则返回空串。
+   *  high → 蓝 ↑；low → 蓝 ↓。箭头只表达「偏离参考方向」，不是诊断。 */
+  function abnMark(abnormal) {
+    if (abnormal === 'high') return ' <span class="abn up" title="高于参考范围/报告标注偏高">↑</span>';
+    if (abnormal === 'low') return ' <span class="abn down" title="低于参考范围/报告标注偏低">↓</span>';
+    return '';
+  }
+
   /* ------------------------------------------------------------ 概览接入 */
 
   /** 问一次后端：关系表在不在。startApp 会先 await 它，好让旧逻辑决定要不要让路。 */
@@ -131,7 +140,7 @@ var V2 = (function () {
     var spark = (w.spark && w.spark.length >= 2)
       ? C.sparkline(w.spark.map(function (p) { return { value: p.value }; }))
       : '<span class="muted" style="font-size:11px">不足 2 点</span>';
-    return '<tr' + (isFollowed ? '' : ' class="unfollowed"') + '>' +
+    return '<tr' + (isFollowed ? '' : ' class="unfollowed"') + (w.abnormal ? ' data-abn="1"' : '') + '>' +
       '<td><b>' + esc(w.name) + '</b>' +
       (w.is_text ? ' <span class="tag gray">文本</span>' : '') +
       (isFollowed ? '' : ' <span class="muted" style="font-size:11px;font-weight:400">未关注</span>') + '</td>' +
@@ -139,7 +148,9 @@ var V2 = (function () {
       '<td>' + (has
         ? '<b class="num">' + esc(w.last_value) + '</b> <span class="muted">' + esc(w.last_unit || '') + '</span>'
         : '<span class="muted">—</span>') +
-      (w.last_flag ? ' <span class="flag">' + esc(w.last_flag) + '</span>' : '') + '</td>' +
+      abnMark(w.abnormal) +
+      (w.last_flag && !w.abnormal ? ' <span class="muted" style="font-size:11px">' + esc(w.last_flag) + '</span>' : '') +
+      '</td>' +
       '<td class="num" style="font-size:12px">' +
       (w.last_date ? esc(C.L.fmtCN(w.last_date)) : '<span class="muted">—</span>') + '</td>' +
       '<td class="r num">' + (w.date_count || 0) + '</td>' +
@@ -678,9 +689,11 @@ var V2 = (function () {
             points: s.line.map(function (p) {
               var ex = [];
               if (s.ordinal && p.label) ex.push('结果：' + p.label);
+              if (p.abnormal === 'high') ex.push('高于参考范围/标注偏高');
+              if (p.abnormal === 'low') ex.push('低于参考范围/标注偏低');
               if (p.pending) ex.push('日期待确认');
               return { date: p.date, value: p.value, unit: s.ordinal ? '' : s.unit,
-                extra: ex.join(' · ') };
+                abnormal: p.abnormal, extra: ex.join(' · ') };
             })
           }], decimals: s.ordinal ? 0 : 2
         }) + '</div>';
@@ -709,10 +722,11 @@ var V2 = (function () {
           (p.person_name ? '<span class="nm">' + esc(p.person_name) + '</span>' : '') +
           '<span class="va"><b>' + esc(p.value || '—') + '</b>' +
           (p.unit ? ' <span class="muted">' + esc(p.unit) + '</span>' : '') + '</span>' +
+          abnMark(p.abnormal) +
           '<span class="src-chip' + (p.source === 'report' ? ' report' : '') + '">' +
           esc(p.source === 'report' ? '报告提取' : '手动录入') + '</span>' +
           (p.reference ? '<span class="muted" style="font-size:11.5px">参考 ' + esc(p.reference) + '</span>' : '') +
-          (p.flag ? '<span class="flag">' + esc(p.flag) + '</span>' : '') +
+          (p.flag && !p.abnormal ? '<span class="muted" style="font-size:11px">' + esc(p.flag) + '</span>' : '') +
           (p.document_id
             ? '<button class="btn sm ghost" data-src-doc="' + attr(p.document_id) + '">来源</button>'
             : '<span class="muted" style="font-size:11.5px">手动录入，无来源档案</span>') +

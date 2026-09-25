@@ -1203,11 +1203,15 @@ function renderStructResult() {
       '<th style="text-align:left;padding:4px">结果</th><th style="text-align:left;padding:4px">单位</th>' +
       '<th style="text-align:left;padding:4px">参考范围</th><th style="text-align:left;padding:4px">提示</th></tr>' +
       labs.map(function (x) {
+        var f = nz(x.flag);
+        var fcell = (f && /^[\u2191\u2193]$/.test(String(f).trim()))
+          ? '<span class="abn ' + (String(f).trim() === '\u2191' ? 'up' : 'down') + '">' + String(f).trim() + '</span>'
+          : esc(f || '');
         return '<tr><td style="padding:4px">' + esc(x.name || '') + '</td>' +
           '<td style="padding:4px">' + esc(nz1(x.result) === '未提供' ? '' : String(x.result)) + '</td>' +
           '<td style="padding:4px">' + esc(x.unit || '') + '</td>' +
           '<td style="padding:4px">' + esc(x.reference || '') + '</td>' +
-          '<td style="padding:4px">' + esc(x.flag || '') + '</td></tr>';
+          '<td style="padding:4px">' + fcell + '</td></tr>';
       }).join('') + '</table></div>';
   }
 
@@ -1495,7 +1499,13 @@ function lineChart(cfg) {
     }
     seq.forEach(function (p) {
       var xi = X(dates.indexOf(p.date)), yi = Y(p.value);
-      dots += '<circle class="point-hit" cx="' + xi.toFixed(1) + '" cy="' + yi.toFixed(1) + '" r="4" fill="#fff" stroke="' + s.color + '" stroke-width="2">' +
+      // 异常点（偏高/偏低）用实心深蓝填充并加大，正常点保持白底描边，
+      // 一眼能把「偏离参考范围」的点挑出来，又不引入新颜色。
+      var abn = p.abnormal === 'high' || p.abnormal === 'low';
+      var r = abn ? 5 : 4;
+      var fill = abn ? '#1f5fa9' : '#fff';
+      var sw = abn ? 2.4 : 2;
+      dots += '<circle class="point-hit" cx="' + xi.toFixed(1) + '" cy="' + yi.toFixed(1) + '" r="' + r + '" fill="' + fill + '" stroke="' + s.color + '" stroke-width="' + sw + '">' +
         '<title>' + esc(s.name + ' · ' + L.fmtCN(p.date) + ' · ' + p.value + ' ' + (p.unit || '') +
           (p.extra ? ' · ' + p.extra : '')) + '</title></circle>';
     });
@@ -3868,7 +3878,8 @@ function renderTypeSpecific(rec) {
           // 表格按分组重排过，留痕与编辑必须认原始下标，否则改的是另一行
           var i = labs.indexOf(r);
           var flag = nz(r.flag);
-          var rendered = (flag && /^[\u2191\u2193]$/.test(String(flag).trim())) ? String(flag).trim()
+          var rendered = (flag && /^[\u2191\u2193]$/.test(String(flag).trim()))
+            ? '<span class="abn ' + (String(flag).trim() === '\u2191' ? 'up' : 'down') + '">' + String(flag).trim() + '</span>'
             : (flag ? esc(flag) + ' <span class="muted" style="font-size:11px">（原文标记，识别不清时保留原样）</span>' : '');
           return '<tr>' + tsCell(rec, 'lab_results.' + i + '.name', r.name) +
             tsCell(rec, 'lab_results.' + i + '.result',

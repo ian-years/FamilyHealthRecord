@@ -20,6 +20,17 @@ _probe/out*/
 # 真实体检报告的脱敏归档包（个人医疗数据的派生）
 archive-package-health-2025-12-13.json
 
+# 真实报告的结构化转录脚本：整份病历（68 项检验值 + 终检结论原文）都在里面，只留本机
+_parse/build_payload.py
+
+# 拿真实数据跑出来的界面截图。第 11 行的 token 扫描对二进制是瞎的，这几张就是这么漏出去的；
+# 防复发的闸在 _selftest/test_leak_tokens.py 第 5 节（受跟踪图片必须逐张过人眼）
+/v2-04-source-doc.png
+_probe/src-doc.png
+_probe/single-src.png
+_probe/overview.png
+_probe/weight-ind.png
+
 # ===== Python 缓存 =====
 __pycache__/
 *.pyc

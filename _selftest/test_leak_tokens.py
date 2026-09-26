@@ -7,7 +7,9 @@
 
   1. token 清单放在 gitignored 的 _parse/leak_tokens.json，脚本读不到就必须中止，
      绝不「没有清单就当没有泄漏」地静默通过；
-  2. 逐个扫 git 跟踪的每一个文件，任何 token 命中都算失败。
+  2. 逐个扫 git 跟踪的每一个文件，任何 token 命中都算失败；
+  3. 图片扫不到像素，所以受跟踪图片只能是 _fixtures/ 的合成资料，或逐张过人眼的
+     复核清单（第 5 节）—— 真实数据跑出来的界面截图靠这条挡住。
 
 本测试自身不含任何身份信息 —— token 一律从那个 JSON 现读。
 用法：
@@ -114,7 +116,7 @@ else:
         try:
             text = blob.decode('utf-8')
         except UnicodeDecodeError:
-            continue          # 二进制（图片 / PDF）不在本轮范围
+            continue          # 二进制（图片 / PDF）文本扫不到，由第 5 节的白名单兜
         scanned += 1
         for tok in tk.leak_check:
             if tok and tok in text:
@@ -124,13 +126,55 @@ else:
 
     print('\n=== 4. 脚本改为读清单 ===')
     for name in ('build_payload.py', 'make_archive_package.py'):
-        with open(os.path.join(HERE, '_parse', name), encoding='utf-8') as fh:
+        fp = os.path.join(HERE, '_parse', name)
+        if not os.path.isfile(fp):
+            # build_payload.py 是真实体检报告的转录脚本，整份病历都在里面，只留本机不入库
+            print('NOTE  %s 不在（含真实病历转录的脚本不入库），跳过对本机的检查' % name)
+            continue
+        with open(fp, encoding='utf-8') as fh:
             src = fh.read()
         check('%s 引用了 token 清单模块' % name, 'hrw_tokens' in src)
     # 原件路径也带真名，同样不能出现在入库脚本里
-    with open(os.path.join(HERE, '_parse', 'build_payload.py'), encoding='utf-8') as fh:
-        bp = fh.read()
-    check('build_payload.py 不再硬编码原件绝对路径', 'SRC_PDF = r"' not in bp)
+    bp_path = os.path.join(HERE, '_parse', 'build_payload.py')
+    if os.path.isfile(bp_path):
+        with open(bp_path, encoding='utf-8') as fh:
+            bp = fh.read()
+        check('build_payload.py 不再硬编码原件绝对路径', 'SRC_PDF = r"' not in bp)
+
+# ---------------------------------------------------------------- 5. 图片白名单
+# 第 3 节对二进制文件是瞎的，而真实数据的界面截图恰恰是从这里漏出去的：
+# _probe/ 与 v2-04 曾带着真实姓名和体检编号入库。像素扫不出身份，只能靠
+# 「受跟踪图片必须逐张过人眼」这条关系把门 —— 新增图片不进来复核就红。
+print('\n=== 5. 受跟踪图片必须逐张过人眼 ===')
+IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.pdf')
+FIXTURE_DIR = '_fixtures' + os.sep
+# 以下每张都确认过：只有空态或通用界面，无真实数值、无姓名与编号。
+REVIEWED_UI_SHOTS = {
+    '_probe/home.png',
+    'fixcheck.png',
+    'v2-01-follow-drawer.png',
+    'v2-02-overview.png',
+    'v2-03-indicator.png',
+    'v2-05-fees.png',
+    'v2-06-catalog.png',
+}
+tracked_all = subprocess.run(['git', 'ls-files', '-z'], cwd=HERE,
+                             capture_output=True).stdout.split(b'\0')
+tracked_all = [p.decode('utf-8', 'replace') for p in tracked_all if p]
+images = [p for p in tracked_all if p.lower().endswith(IMAGE_EXTS)]
+# _fixtures/ 下是合成资料（自带「虚构测试数据」水印），不算真实数据
+synthetic = [p for p in images if p.replace('/', os.sep).startswith(FIXTURE_DIR)]
+real_shots = [p for p in images if p not in synthetic]
+check('扫到了受跟踪图片（清单为空则本节形同不存在）',
+      len(images) > 0, '%d 张，其中 %d 张是 _fixtures/ 合成资料' % (len(images), len(synthetic)))
+unreviewed = sorted(p for p in real_shots if p not in REVIEWED_UI_SHOTS)
+check('除合成资料外，每张受跟踪图片都在已复核清单里',
+      not unreviewed,
+      '未经人眼复核: %s' % ', '.join(unreviewed[:8]) if unreviewed
+      else '%d 张已全部复核' % len(real_shots))
+gone = sorted(p for p in REVIEWED_UI_SHOTS if p not in real_shots)
+check('复核清单里没有已不存在的图片（清单与实际保持一致）',
+      not gone, '可从 REVIEWED_UI_SHOTS 删除: %s' % ', '.join(gone[:8]) if gone else '')
 
 # ---------------------------------------------------------------- 汇总
 print('\n=== 汇总 ===')
